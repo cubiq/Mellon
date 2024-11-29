@@ -41,6 +41,11 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+you will need to login to huggingface in order to be able to download the model, you can do so by executing the following command and follow the instructions :
+
+```bash
+huggingface-cli login
+```
 
 Then you can run the server with:
 
