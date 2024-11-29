@@ -10,10 +10,47 @@ Mellon is a client/server application to easily interface with ML tools with a f
 ```bash
 git clone https://github.com/cubiq/Mellon.git
 cd Mellon
+```
+
+<details open>
+<summary>Using VENV</summary>
+<pre>
+<code>
 python -m venv venv
 source venv/bin/activate
+</code>
+</pre>
+</details>
+
+<details>
+<summary>Using CONDA</summary>
+<pre>
+<code>
+conda create DFlow_312 python="3.12"
+conda activate DFlow_312
+</code>
+</pre>
+</details>
+
+<details>
+<summary>Installing on WINDOWS</summary>
+<pre>
+<code>
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118
+</code>
+</pre>
+</details>
+
+
+```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+you will need to login to huggingface in order to be able to download the model, you can do so by executing the following command and follow the instructions :
+
+```bash
+huggingface-cli login
 ```
 
 Then you can run the server with:
