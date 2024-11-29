@@ -10,11 +10,37 @@ Mellon is a client/server application to easily interface with ML tools with a f
 ```bash
 git clone https://github.com/cubiq/Mellon.git
 cd Mellon
+```
+
+<details>
+<summary>Using VENV</summary>
+```bash
 python -m venv venv
 source venv/bin/activate
+```
+</summary>
+
+<details>
+<summary>Using CONDA</summary>
+```bash
+conda create DFlow_312 python="3.12"
+conda activate DFlow_312
+```
+</summary>
+
+<details>
+<summary>Installing on WINDOWS</summary>
+```bash
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118
+```
+</summary>
+
+
+```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
 
 Then you can run the server with:
 
