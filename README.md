@@ -14,25 +14,31 @@ cd Mellon
 
 <details open>
 <summary>Using VENV</summary>
-```bash
+<pre>
+<code>
 python -m venv venv
 source venv/bin/activate
-```
+</code>
+</pre>
 </details>
 
 <details>
 <summary>Using CONDA</summary>
-```bash
+<pre>
+<code>
 conda create DFlow_312 python="3.12"
 conda activate DFlow_312
-```
+</code>
+</pre>
 </details>
 
 <details>
 <summary>Installing on WINDOWS</summary>
-```bash
+<pre>
+<code>
 pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118
-```
+</code>
+</pre>
 </details>
 
 
