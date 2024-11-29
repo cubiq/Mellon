@@ -12,7 +12,7 @@ git clone https://github.com/cubiq/Mellon.git
 cd Mellon
 ```
 
-<details>
+<details open>
 <summary>Using VENV</summary>
 ```bash
 python -m venv venv
