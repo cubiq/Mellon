@@ -15,6 +15,7 @@ from copy import deepcopy
 import random
 import signal
 import time
+import sys
 
 class WebServer:
     def __init__(self, module_map: dict, host: str = "0.0.0.0", port: int = 8080, cors: bool = False, cors_route: str = "*"):
@@ -70,11 +71,22 @@ class WebServer:
                 self.ws_clients.clear()
 
             # Set up signal handlers
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                self.event_loop.add_signal_handler(
-                    sig,
-                    lambda: asyncio.create_task(shutdown())
-                )
+            if sys.platform == "win32":
+                # Handle Windows signals using KeyboardInterrupt
+                async def windows_shutdown():
+                    try:
+                        while not shutdown_event.is_set():
+                            await asyncio.sleep(1)  # Keep the event loop running
+                    except KeyboardInterrupt:
+                        await shutdown()
+
+                asyncio.create_task(windows_shutdown())
+            else:
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    self.event_loop.add_signal_handler(
+                        sig,
+                        lambda: asyncio.create_task(shutdown())
+                    )
 
             runner = web.AppRunner(self.app, client_max_size=1024**4)
             await runner.setup()
