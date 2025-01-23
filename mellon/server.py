@@ -387,6 +387,8 @@ class WebServer:
                             ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
                         elif params[p]["type"] == "3d":
                             ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
+                        elif params[p]["type"] == "string":
+                            ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
                     else:
                         # handle list values (spawn input fields)
                         # if p ends with [d+], it means that the field is part of a list
@@ -481,21 +483,26 @@ class WebServer:
                 logger.debug(f"Node {module_name}.{action_name} executed in {execution_time:.3f}s")
 
                 for key in ui_fields:
+                    data = []
                     source = ui_fields[key]["source"]
                     source_value = self.node_store[node].output[source]
-                    length = len(source_value) if isinstance(source_value, list) else 1
-                    format = 'webp' if ui_fields[key]["type"] == 'image' else 'glb'
-                    data = []
-                    for i in range(length):
-                        if length > 1:
-                            scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
-                        else:
-                            scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
+                    if ui_fields[key]["type"] == "string":
                         data.append({
-                            "url": f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}",
-                            "width": source_value[i].width,
-                            "height": source_value[i].height
+                            'string': source_value
                         })
+                    else:
+                        length = len(source_value) if isinstance(source_value, list) else 1
+                        format = 'webp' if ui_fields[key]["type"] == 'image' else 'glb'
+                        for i in range(length):
+                            if length > 1:
+                                scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                            else:
+                                scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
+                            data.append({
+                                "url": f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}",
+                                "width": source_value[i].width,
+                                "height": source_value[i].height
+                            })
 
                     await self.client_queue.put({
                         "client_id": sid,
