@@ -56,57 +56,73 @@ class WebServer:
                 cors.add(route)
 
     def run(self):
-        async def start_app():
-            shutdown_event = asyncio.Event()
-            self.event_loop = asyncio.get_event_loop()
+        async def shutdown():
+            if hasattr(self, 'is_shutting_down') and self.is_shutting_down:
+                return
+            self.is_shutting_down = True
+            
+            logger.info("Received shutdown signal. Namárië!")
+            self.shutdown_event.set()
 
-            async def shutdown():
-                logger.info(f"Received signal interrupt. Namárië!")
-                shutdown_event.set()
+            # Cancel all running tasks except the current one
+            tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for task in tasks:
+                task.cancel()
 
-                # we don't need to gracefully unload models when exiting
-                # this speeds up the shutdown process
-                for node in list(self.node_store.values()):
-                    if node._mm_model_ids:
-                        node.FORCE_UNLOAD = False
+            #try:
+                # Wait for all tasks to finish
+            await asyncio.gather(*tasks, return_exceptions=True)
+            #except asyncio.CancelledError:
+                #pass  # Ignore cancelled error during shutdown
 
-                # Close all websocket connections immediately
-                for ws in list(self.ws_clients.values()):
+            # Close all websocket connections
+            for ws in list(self.ws_clients.values()):
+                try:
                     await ws.close(code=1000, message=b'Server shutting down')
-                self.ws_clients.clear()
+                except Exception:
+                    pass  # Ignore any websocket closing errors
+            self.ws_clients.clear()
+
+        async def start_app():
+            self.shutdown_event = asyncio.Event()
+            self.event_loop = asyncio.get_event_loop()
+            self.is_shutting_down = False
 
             # Set up signal handlers
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                self.event_loop.add_signal_handler(
-                    sig,
-                    lambda: asyncio.create_task(shutdown())
-                )
+            def signal_handler():
+                if not self.is_shutting_down:
+                    asyncio.create_task(shutdown())
+
+            try:
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    self.event_loop.add_signal_handler(sig, signal_handler)
+            except NotImplementedError:
+                # For Windows compatibility
+                pass
 
             runner = web.AppRunner(self.app, client_max_size=1024**4)
             await runner.setup()
             site = web.TCPSite(runner, self.host, self.port)
 
-            # Start queue processor
+            # Start background tasks
             self.queue_task = asyncio.create_task(self.process_queue())
             self.client_task = asyncio.create_task(self.process_client_messages())
 
             await site.start()
 
             try:
-                await shutdown_event.wait()
+                await self.shutdown_event.wait()
             finally:
-                # Cancel and wait for queue tasks
-                for task in [self.queue_task, self.client_task]:
-                    if task and not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-
+                await shutdown()
                 await runner.cleanup()
 
-        asyncio.run(start_app())
+        try:
+            asyncio.run(start_app())
+        except KeyboardInterrupt:
+            # On Windows, asyncio.run() may not handle KeyboardInterrupt properly
+            pass
+        except asyncio.CancelledError:
+            pass  # Ignore cancelled error during shutdown
 
     async def process_client_messages(self):
         while True:
@@ -482,15 +498,22 @@ class WebServer:
                     format = 'webp' if ui_fields[key]["type"] == 'image' else 'glb'
                     data = []
                     for i in range(length):
-                        if length > 1:
-                            scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                        if format == 'image':
+                            if length > 1:
+                                scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                            else:
+                                scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
+                            url = f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}"
+                            data.append({
+                                "url": url,
+                                "width": source_value[i].width,
+                                "height": source_value[i].height
+                            })
                         else:
-                            scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
-                        data.append({
-                            "url": f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}",
-                            "width": source_value[i].width,
-                            "height": source_value[i].height
-                        })
+                            url = f"/view/{format}/{node}/{source}/{i}?t={time.time()}"
+                            data.append({
+                                "url": url,
+                            })
 
                     await self.client_queue.put({
                         "client_id": sid,

@@ -30,13 +30,11 @@ def are_different(a, b):
     if isinstance(a, (list, tuple)):
         if len(a) != len(b):
             return True
-        
         return any(are_different(x, y) for x, y in zip(a, b))
 
     if isinstance(a, dict):
         if a.keys() != b.keys():
             return True
-        
         return any(are_different(a[k], b[k]) for k in a)
 
     if hasattr(a, 'dtype'):
@@ -44,11 +42,14 @@ def are_different(a, b):
             return True
 
     if hasattr(a, 'shape'):
-        if not hasattr(b, 'shape') or a.shape != b.shape:
+        if a.shape != b.shape:
             return True
-    
+
     if isinstance(a, torch.Tensor):
         return not torch.equal(a, b)
+
+    if hasattr(a, 'to_dict'):
+        return are_different(a.to_dict(), b.to_dict())
 
     if hasattr(a, '__dict__') and hasattr(b, '__dict__'):
         if a.__dict__ != b.__dict__:
@@ -90,7 +91,7 @@ class NodeBase():
 
         execution_time = time.time()
 
-        if self._has_changed(values):
+        if self._has_changed(values) or self._is_output_empty():
             self.params.update(values)
 
             # delete previously loaded models
@@ -166,11 +167,11 @@ class NodeBase():
 
                 # options can be in the format: [ 1, 2, 3 ] or { '1': { }, '2': { }, '3': { } }
                 if isinstance(options, list):
-                    val = [values[key]] if isinstance(values[key], str) else values[key]
+                    val = [values[key]] if not isinstance(values[key], list) else values[key]
                     if any(v not in options for v in val):
                         raise ValueError(f"Invalid value for {key}: {values[key]}")
                 elif isinstance(options, dict):
-                    val = [values[key]] if isinstance(values[key], str) else values[key]
+                    val = [values[key]] if not isinstance(values[key], list) else values[key]
                     if any(v not in options for v in val):
                         raise ValueError(f"Invalid value for {key}: {values[key]}")
                 else:
@@ -192,6 +193,9 @@ class NodeBase():
             are_different(self.params.get(key), values.get(key))
             for key in values
         )
+    
+    def _is_output_empty(self):
+        return all(value is None for value in self.output.values())
     
     def pipe_callback(self, pipe, step_index, timestep, kwargs):
         import asyncio
