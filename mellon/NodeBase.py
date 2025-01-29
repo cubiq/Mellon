@@ -50,7 +50,6 @@ def are_different(a, b):
 
     # deep PIL images comparison
     if hasattr(a, 'getdata') and hasattr(a, 'width') and hasattr(a, 'height'):
-        print(a.size)
         # compare small images with tobytes(), possibly unnecessary optimization
         if a.width*a.height < 32768:
             return a.tobytes() != b.tobytes()
