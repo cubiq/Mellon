@@ -6,6 +6,7 @@ import time
 from utils.memory_manager import memory_flush, memory_manager
 from mellon.server import web_server
 import nanoid
+import numpy as np
 
 def get_module_params(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -26,30 +27,69 @@ def are_different(a, b):
     # check if the types are different
     if type(a) != type(b):
         return True
+
+    # check custom hash, this value is king
+    if hasattr(a, "_MELLON_HASH") and hasattr(b, "_MELLON_HASH"):
+       return hasattr(a, "_MELLON_HASH") != hasattr(b, "_MELLON_HASH")
     
+    # common attributes
+    if hasattr(a, 'shape'):
+        if a.shape != b.shape:
+            return True
+    if hasattr(a, 'dtype'):
+        if not hasattr(b, 'dtype') or a.dtype != b.dtype:
+            return True
+
+    # quick image comparison
+    if hasattr(a, 'size'):
+        if a.size != b.size:
+            return True
+    if hasattr(a, 'mode'):
+        if a.mode != b.mode:
+            return True
+
+    # deep PIL images comparison
+    if hasattr(a, 'getdata') and hasattr(a, 'width') and hasattr(a, 'height'):
+        print(a.size)
+        # compare small images with tobytes(), possibly unnecessary optimization
+        if a.width*a.height < 32768:
+            return a.tobytes() != b.tobytes()
+        return not np.array_equal(np.asarray(a), np.asarray(b))
+
+    # trimesh comparison
+    if hasattr(a, 'vertices') and hasattr(a.vertices, 'shape'):
+        if are_different(a.vertices, b.vertices):
+            return True
+    if hasattr(a, 'faces') and hasattr(a.faces, 'shape'):
+        if are_different(a.vertices, b.vertices):
+            return True
+    if hasattr(a, 'visual') and hasattr(a.visual, 'material') and hasattr(a.visual.material, 'image'):
+        if are_different(a.visual.material.image, b.visual.material.image):
+            return True
+
+    # compare numpy arrays
+    if isinstance(a, np.ndarray):
+        return not np.array_equal(a, b)
+
+    # compare tensors
+    if isinstance(a, torch.Tensor):
+        return not torch.equal(a, b)
+
+    # iterate list, tuple, dict
     if isinstance(a, (list, tuple)):
         if len(a) != len(b):
             return True
         return any(are_different(x, y) for x, y in zip(a, b))
-
     if isinstance(a, dict):
         if a.keys() != b.keys():
             return True
         return any(are_different(a[k], b[k]) for k in a)
 
-    if hasattr(a, 'dtype'):
-        if not hasattr(b, 'dtype') or a.dtype != b.dtype:
-            return True
-
-    if hasattr(a, 'shape'):
-        if a.shape != b.shape:
-            return True
-
-    if isinstance(a, torch.Tensor):
-        return not torch.equal(a, b)
-
+    # we hope to never reach this point
     if hasattr(a, 'to_dict'):
-        return are_different(a.to_dict(), b.to_dict())
+        x = a.to_dict()
+        y = b.to_dict()
+        return any(are_different(x[k], y[k]) for k in x)
 
     if hasattr(a, '__dict__') and hasattr(b, '__dict__'):
         if a.__dict__ != b.__dict__:
