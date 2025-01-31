@@ -88,7 +88,7 @@ class MemoryManager:
 
 
     def unload_model(self, model_id):
-        if model_id in self.cache:
+        if model_id in self.cache and hasattr(self.cache[model_id]['model'], 'to'):
             model = self.cache[model_id]['model'].to('cpu')
             self.cache[model_id]['model'] = None
             self.cache[model_id]['model'] = model

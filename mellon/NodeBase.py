@@ -24,6 +24,10 @@ def has_changed(params, args):
     return any(params.get(key) != args.get(key) for key in args if key in params)
 
 def are_different(a, b):
+    # quick identity check
+    if a is b:
+        return False
+
     # check if the types are different
     if type(a) != type(b):
         return True
@@ -59,12 +63,15 @@ def are_different(a, b):
     if hasattr(a, 'vertices') and hasattr(a.vertices, 'shape'):
         if are_different(a.vertices, b.vertices):
             return True
-    if hasattr(a, 'faces') and hasattr(a.faces, 'shape'):
-        if are_different(a.vertices, b.vertices):
-            return True
-    if hasattr(a, 'visual') and hasattr(a.visual, 'material') and hasattr(a.visual.material, 'image'):
-        if are_different(a.visual.material.image, b.visual.material.image):
-            return True
+        if hasattr(a, 'visual') and hasattr(a.visual, 'material') and hasattr(a.visual.material, 'image'):
+            if are_different(a.visual.material.image, b.visual.material.image):
+                return True
+        if hasattr(a, 'faces') and hasattr(a.faces, 'shape'):
+            if are_different(a.faces, b.faces):
+                return True
+        # we assume that the mesh is the same if the vertices, faces and material are the same
+        # TODO: check if this is correct
+        return False
 
     # compare numpy arrays
     if isinstance(a, np.ndarray):
@@ -84,7 +91,6 @@ def are_different(a, b):
             return True
         return any(are_different(a[k], b[k]) for k in a)
 
-    # we hope to never reach this point
     if hasattr(a, 'to_dict'):
         x = a.to_dict()
         y = b.to_dict()

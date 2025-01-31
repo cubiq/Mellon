@@ -224,7 +224,7 @@ class WebServer:
         return web.json_response(nodes)
     
     async def view(self, request):
-        allowed_formats = ['webp', 'png', 'jpeg', 'glb']
+        allowed_formats = ['webp', 'png', 'jpeg', 'glb', 'text']
 
         format = request.match_info.get('format', 'webp').lower()
         if format not in allowed_formats:
@@ -291,6 +291,8 @@ class WebServer:
                     "Cache-Control": "max-age=31536000, immutable",
                 }
             )
+        elif format == "text":
+            return web.json_response({ "data": value })
 
     async def clear_node_cache(self, request):
         data = await request.json()
@@ -394,9 +396,7 @@ class WebServer:
 
                     if "display" in params[p] and params[p]["display"] == "ui":
                         # store ui fields that need to be sent back to the client
-                        if params[p]["type"] == "image":
-                            ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
-                        elif params[p]["type"] == "3d":
+                        if params[p]["type"] == "image" or params[p]["type"] == "3d" or params[p]["type"] == "text":
                             ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
                     else:
                         # handle list values (spawn input fields)
@@ -495,25 +495,37 @@ class WebServer:
                     source = ui_fields[key]["source"]
                     source_value = self.node_store[node].output[source]
                     length = len(source_value) if isinstance(source_value, list) else 1
-                    format = 'webp' if ui_fields[key]["type"] == 'image' else 'glb'
+                    format = ui_fields[key]["type"]
+                    if format == "image":
+                        format = 'webp'
+                    elif format == "3d":
+                        format = 'glb'
+                    else:
+                        format = 'text'
                     data = []
-                    for i in range(length):
-                        if format == 'image':
-                            if length > 1:
-                                scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                    if format == 'text':
+                        data = {
+                            "url": f"/view/{format}/{node}/{source}/{0}?t={time.time()}",
+                            "value": source_value
+                        }
+                    else:
+                        for i in range(length):
+                            if format == 'image':
+                                if length > 1:
+                                    scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                                else:
+                                    scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
+                                url = f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}"
+                                data.append({
+                                    "url": url,
+                                    "width": source_value[i].width,
+                                    "height": source_value[i].height
+                                })
                             else:
-                                scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
-                            url = f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}"
-                            data.append({
-                                "url": url,
-                                "width": source_value[i].width,
-                                "height": source_value[i].height
-                            })
-                        else:
-                            url = f"/view/{format}/{node}/{source}/{i}?t={time.time()}"
-                            data.append({
-                                "url": url,
-                            })
+                                url = f"/view/{format}/{node}/{source}/{i}?t={time.time()}"
+                                data.append({
+                                    "url": url,
+                                })
 
                     await self.client_queue.put({
                         "client_id": sid,
