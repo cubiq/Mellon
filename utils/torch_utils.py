@@ -32,22 +32,29 @@ def list_devices():
 
         devices[f"{host}cpu"] = cpu
 
-    elif torch.mps.is_available():
-        key = f"{host}mps"
-        default_device = key
-        devices[key] = {
-            "index": 0,
-            "device": "mps",
-            "host": host,
-            "label": host + "mps",
-            "total_memory": None,
-            #"name": "MPS"
-        }
-
     else:
-        key = f"{host}cpu"
-        default_device = key
-        devices[key] = cpu
+        # Check for MPS (Apple Silicon) support
+        try:
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                key = f"{host}mps"
+                default_device = key
+                devices[key] = {
+                    "index": 0,
+                    "device": "mps",
+                    "host": host,
+                    "label": host + "mps",
+                    "total_memory": None,
+                    #"name": "MPS"
+                }
+            else:
+                key = f"{host}cpu"
+                default_device = key
+                devices[key] = cpu
+        except:
+            # Fallback to CPU if MPS check fails
+            key = f"{host}cpu"
+            default_device = key
+            devices[key] = cpu
 
     return devices, default_device
 
