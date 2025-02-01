@@ -6,21 +6,6 @@ MODULE_MAP = {
         'label': 'SD3 Pipeline Loader',
         'category': 'loaders',
         'params': {
-            'transformer': {
-                'label': 'Transformer',
-                'type': 'SD3Transformer2DModel',
-                'display': 'output',
-            },
-            'text_encoders': {
-                'label': 'Text Encoders',
-                'type': 'SD3TextEncoders',
-                'display': 'output',
-            },
-            'vae': {
-                'label': 'VAE',
-                'type': 'VAE',
-                'display': 'output',
-            },
             'pipeline': {
                 'label': 'SD3 Pipeline',
                 'type': 'pipeline',
@@ -64,76 +49,69 @@ MODULE_MAP = {
         },
     },
 
-    # 'SD3TransformerLoader': {
-    #     'label': 'SD3 Transformer loader',
-    #     'description': 'Load the Transformer of an SD3 model',
-    #     'category': 'samplers',
-    #     'params': {
-    #         'model': {
-    #             'label': 'Transformer',
-    #             'type': 'SD3Transformer2DModel',
-    #             'display': 'output',
-    #         },
-    #         'model_id': {
-    #             'label': 'Model ID',
-    #             'type': 'string',
-    #             'options': list_local_models(),
-    #             'display': 'autocomplete',
-    #             'no_validation': True,
-    #             'default': 'stabilityai/stable-diffusion-3.5-large',
-    #         },
-    #         'dtype': {
-    #             'label': 'dtype',
-    #             'options': ['auto', 'float32', 'float16', 'bfloat16'],
-    #             'default': 'bfloat16',
-    #             'postProcess': str_to_dtype,
-    #         },
-    #         'device': {
-    #             'label': 'Device',
-    #             'type': 'string',
-    #             'options': device_list,
-    #             'default': default_device,
-    #         },
-    #     },
-    # },
+    'SD3TransformerLoader': {
+        'label': 'SD3 Transformer loader',
+        'description': 'Load the Transformer of an SD3 model',
+        'category': 'loaders',
+        'params': {
+            'model': {
+                'label': 'Transformer',
+                'type': 'SD3Transformer2DModel',
+                'display': 'output',
+            },
+            'model_id': {
+                'label': 'Model ID',
+                'type': 'string',
+                'options': list_local_models(),
+                'display': 'autocomplete',
+                'no_validation': True,
+                'default': 'stabilityai/stable-diffusion-3.5-large',
+            },
+            'dtype': {
+                'label': 'dtype',
+                'options': ['auto', 'float32', 'float16', 'bfloat16'],
+                'default': 'bfloat16',
+                'postProcess': str_to_dtype,
+            },
+            'compile': {
+                'label': 'Compile',
+                'type': 'boolean',
+                'default': False,
+            },
+        },
+    },
 
-    # 'SD3TextEncodersLoader': {
-    #     'label': 'SD3 Text Encoders Loader',
-    #     'description': 'Load both the CLIP and T5 Text Encoders',
-    #     'category': 'text-encoders',
-    #     'params': {
-    #         'model': {
-    #             'label': 'SD3 Encoders',
-    #             'display': 'output',
-    #             'type': 'SD3TextEncoders',
-    #         },
-    #         'model_id': {
-    #             'label': 'Model ID',
-    #             'type': 'string',
-    #             'options': list_local_models(),
-    #             'display': 'autocomplete',
-    #             'no_validation': True,
-    #             'default': 'stabilityai/stable-diffusion-3.5-large',
-    #         },
-    #         'dtype': {
-    #             'label': 'Dtype',
-    #             'type': 'string',
-    #             'options': ['auto', 'float32', 'float16', 'bfloat16'],
-    #             'default': 'bfloat16',
-    #         },
-    #         'device': {
-    #             'label': 'Device',
-    #             'type': 'string',
-    #             'options': device_list,
-    #             'default': default_device,
-    #         },
-    #         'load_t5': {
-    #             'label': 'Load T5 Encoder',
-    #             'type': 'boolean',
-    #             'default': True,
-    #         },
-    #     },
-    # },
+    'SD3TextEncodersLoader': {
+        'label': 'SD3 Text Encoders Loader',
+        'description': 'Load both the CLIP and T5 Text Encoders',
+        'category': 'loaders',
+        'params': {
+            'model': {
+                'label': 'SD3 Encoders',
+                'display': 'output',
+                'type': 'SD3TextEncoders',
+            },
+            'model_id': {
+                'label': 'Model ID',
+                'type': 'string',
+                'options': list_local_models(),
+                'display': 'autocomplete',
+                'no_validation': True,
+                'default': 'stabilityai/stable-diffusion-3.5-large',
+            },
+            'dtype': {
+                'label': 'Dtype',
+                'type': 'string',
+                'options': ['auto', 'float32', 'float16', 'bfloat16'],
+                'default': 'bfloat16',
+            },
+            'load_t5': {
+                'label': 'Load T5 Encoder',
+                'type': 'boolean',
+                'default': True,
+            },
+        },
+    },
 
     'SD3PromptEncoder': {
         'label': 'SD3 Prompt Encoder',
@@ -142,7 +120,7 @@ MODULE_MAP = {
             'text_encoders': {
                 'label': 'SD3 Encoders | SD3 Pipeline',
                 'display': 'input',
-                'type': ['SD3TextEncoders', 'pipeline'],
+                'type': 'pipeline',
             },
             'embeds': {
                 'label': 'Embeddings',
@@ -242,7 +220,7 @@ MODULE_MAP = {
             'pipeline': {
                 'label': 'Transformer | Pipeline',
                 'display': 'input',
-                'type': ['SD3Transformer2DModel', 'pipeline'],
+                'type': 'pipeline',
             },
             'prompt': {
                 'label': 'Prompt',
@@ -373,23 +351,39 @@ quantization_params = {
         'label': 'Quantization',
         'options': {
             'none': 'None',
+            'bitsandbytes': 'BitsAndBytes',
             'quanto': 'Quanto',
             'torchao': 'TorchAO',
         },
         'default': 'none',
-        'onChange': { 'action': 'show', 'target': { 'none': None, 'quanto': 'quanto_group', 'torchao': 'torchao_group' } },
+        'onChange': { 'action': 'show', 'target': { 'none': None, 'quanto': 'quanto_group', 'torchao': 'torchao_group', 'bitsandbytes': 'bitsandbytes_group' } },
+    },
+
+    # BitsAndBytes
+    'bitsandbytes_weights': {
+        'label': 'Weights',
+        'options': ['8-bit', '4-bit'],
+        'default': '4-bit',
+        'group': { 'key': 'bitsandbytes', 'label': 'BitsAndBytes', 'display': 'group', 'direction': 'column' },
+        'onChange': { 'action': 'show', 'target': { '4-bit': 'bitsandbytes_double_quant' } },
+    },
+    'bitsandbytes_double_quant': {
+        'label': 'Use double quantization',
+        'type': 'boolean',
+        'default': True,
+        'group': 'bitsandbytes'
     },
 
     # Quanto Quantization
     'quanto_weights': {
         'label': 'Weights',
-        'options': ['int2', 'int4', 'int8', 'float8'],
+        'options': ['int4', 'int8', 'float8'],
         'default': 'float8',
         'group': { 'key': 'quanto', 'label': 'Quanto Quantization', 'display': 'group', 'direction': 'column' },
     },
     'quanto_activations': {
         'label': 'Activations',
-        'options': ['none', 'int2', 'int4', 'int8', 'float8'],
+        'options': ['none', 'int4', 'int8', 'float8'],
         'default': 'none',
         'group': 'quanto'
     },
@@ -397,7 +391,14 @@ quantization_params = {
         'label': 'Exclude blocks',
         'description': 'Comma separated list of block names to exclude from quantization',
         'type': 'string',
-        'default': '',
+        'default': 'proj_out',
+        'group': 'quanto'
+    },
+    'quanto_device': {
+        'label': 'Device',
+        'type': 'string',
+        'options': device_list,
+        'default': default_device,
         'group': 'quanto'
     },
 
@@ -408,6 +409,7 @@ quantization_params = {
             'int8_weight_only': 'int8 weight',
             'int4_weight_only': 'int4 weight',
             'int8_dynamic_activation_int8_weight': 'int8 weight + activation',
+            'fp6': 'fp6',
         },
         'default': 'int8_weight_only',
         'group': { 'key': 'torchao', 'label': 'TorchAO Quantization', 'display': 'group', 'direction': 'column' },
@@ -418,7 +420,14 @@ quantization_params = {
         'default': False,
         'group': 'torchao'
     },
+    'torchao_device': {
+        'label': 'Device',
+        'type': 'string',
+        'options': device_list,
+        'default': default_device,
+        'group': 'torchao'
+    },
 }
 
-#MODULE_MAP['SD3PipelineLoader']['params'].update(quantization_params)
-#MODULE_MAP['SD3TextEncodersLoader']['params'].update(quantization_params)
+MODULE_MAP['SD3TransformerLoader']['params'].update(quantization_params)
+MODULE_MAP['SD3TextEncodersLoader']['params'].update(quantization_params)

@@ -57,31 +57,47 @@ class WebServer:
                 cors.add(route)
 
     def run(self):
-        async def start_app():
-            shutdown_event = asyncio.Event()
-            self.event_loop = asyncio.get_event_loop()
+        async def shutdown():
+            if hasattr(self, 'is_shutting_down') and self.is_shutting_down:
+                return
+            self.is_shutting_down = True
+            
+            logger.info("Received shutdown signal. Namárië!")
+            self.shutdown_event.set()
 
-            async def shutdown():
-                logger.info(f"Received signal interrupt. Namárië!")
-                shutdown_event.set()
+            # Cancel all running tasks except the current one
+            tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for task in tasks:
+                task.cancel()
 
-                # Close all websocket connections immediately
-                for ws in list(self.ws_clients.values()):
+            #try:
+                # Wait for all tasks to finish
+            await asyncio.gather(*tasks, return_exceptions=True)
+            #except asyncio.CancelledError:
+                #pass  # Ignore cancelled error during shutdown
+
+            # Close all websocket connections
+            for ws in list(self.ws_clients.values()):
+                try:
                     await ws.close(code=1000, message=b'Server shutting down')
-                self.ws_clients.clear()
+                except Exception:
+                    pass  # Ignore any websocket closing errors
+            self.ws_clients.clear()
 
-            # Set up signal handlers
-            if sys.platform == "win32":
-                # Handle Windows signals using KeyboardInterrupt
-                async def windows_shutdown():
-                    try:
-                        while not shutdown_event.is_set():
-                            await asyncio.sleep(1)  # Keep the event loop running
-                    except KeyboardInterrupt:
-                        await shutdown()
-
-                asyncio.create_task(windows_shutdown())
-            else:
+        async def start_app():
+            self.shutdown_event = asyncio.Event()
+            self.event_loop = asyncio.get_event_loop()
+            self.is_shutting_down = False
+            
+            if hasattr(signal, "SIGBREAK"):  # Windows
+                def signal_handler(signum, frame):
+                    self.event_loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(shutdown())
+                    )
+                
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGBREAK):
+                    signal.signal(sig, signal_handler)
+            else:  # Unix/Linux/MacOS
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     self.event_loop.add_signal_handler(
                         sig,
@@ -92,27 +108,25 @@ class WebServer:
             await runner.setup()
             site = web.TCPSite(runner, self.host, self.port)
 
-            # Start queue processor
+            # Start background tasks
             self.queue_task = asyncio.create_task(self.process_queue())
             self.client_task = asyncio.create_task(self.process_client_messages())
 
             await site.start()
 
             try:
-                await shutdown_event.wait()
+                await self.shutdown_event.wait()
             finally:
-                # Cancel and wait for queue tasks
-                for task in [self.queue_task, self.client_task]:
-                    if task and not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-
+                await shutdown()
                 await runner.cleanup()
 
-        asyncio.run(start_app())
+        try:
+            asyncio.run(start_app())
+        except KeyboardInterrupt:
+            # On Windows, asyncio.run() may not handle KeyboardInterrupt properly
+            pass
+        except asyncio.CancelledError:
+            pass  # Ignore cancelled error during shutdown
 
     async def process_client_messages(self):
         while True:
@@ -214,7 +228,7 @@ class WebServer:
         return web.json_response(nodes)
     
     async def view(self, request):
-        allowed_formats = ['webp', 'png', 'jpeg', 'glb']
+        allowed_formats = ['webp', 'png', 'jpeg', 'glb', 'text']
 
         format = request.match_info.get('format', 'webp').lower()
         if format not in allowed_formats:
@@ -281,6 +295,8 @@ class WebServer:
                     "Cache-Control": "max-age=31536000, immutable",
                 }
             )
+        elif format == "text":
+            return web.json_response({ "data": value })
 
     async def clear_node_cache(self, request):
         data = await request.json()
@@ -293,6 +309,7 @@ class WebServer:
 
         for node in nodeId:
             if node in self.node_store:
+                self.node_store[node] = None
                 del self.node_store[node]
 
         memory_flush(gc_collect=True)
@@ -383,9 +400,7 @@ class WebServer:
 
                     if "display" in params[p] and params[p]["display"] == "ui":
                         # store ui fields that need to be sent back to the client
-                        if params[p]["type"] == "image":
-                            ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
-                        elif params[p]["type"] == "3d":
+                        if params[p]["type"] == "image" or params[p]["type"] == "3d" or params[p]["type"] == "text":
                             ui_fields[p] = { "source": source_key, "type": params[p]["type"] }
                     else:
                         # handle list values (spawn input fields)
@@ -484,18 +499,37 @@ class WebServer:
                     source = ui_fields[key]["source"]
                     source_value = self.node_store[node].output[source]
                     length = len(source_value) if isinstance(source_value, list) else 1
-                    format = 'webp' if ui_fields[key]["type"] == 'image' else 'glb'
+                    format = ui_fields[key]["type"]
+                    if format == "image":
+                        format = 'webp'
+                    elif format == "3d":
+                        format = 'glb'
+                    else:
+                        format = 'text'
                     data = []
-                    for i in range(length):
-                        if length > 1:
-                            scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
-                        else:
-                            scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
-                        data.append({
-                            "url": f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}",
-                            "width": source_value[i].width,
-                            "height": source_value[i].height
-                        })
+                    if format == 'text':
+                        data = {
+                            "url": f"/view/{format}/{node}/{source}/{0}?t={time.time()}",
+                            "value": source_value
+                        }
+                    else:
+                        for i in range(length):
+                            if format == 'image':
+                                if length > 1:
+                                    scale = 0.5 if source_value[i].width > 1024 or source_value[i].height > 1024 else 1
+                                else:
+                                    scale = 0.5 if source_value[i].width > 2048 or source_value[i].height > 2048 else 1
+                                url = f"/view/{format}/{node}/{source}/{i}?scale={scale}&t={time.time()}"
+                                data.append({
+                                    "url": url,
+                                    "width": source_value[i].width,
+                                    "height": source_value[i].height
+                                })
+                            else:
+                                url = f"/view/{format}/{node}/{source}/{i}?t={time.time()}"
+                                data.append({
+                                    "url": url,
+                                })
 
                     await self.client_queue.put({
                         "client_id": sid,

@@ -4,7 +4,6 @@ import torch
 from diffusers import SD3Transformer2DModel, AutoencoderKL, StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
 from mellon.NodeBase import NodeBase
-from utils.memory_manager import memory_flush
 from utils.hf_utils import is_local_files_only, get_repo_path
 from utils.diffusers_utils import get_clip_prompt_embeds, get_t5_prompt_embeds
 from config import config
@@ -47,7 +46,7 @@ class SD3PipelineLoader(NodeBase):
             load_t5,
             transformer_in,
             text_encoders_in,
-            vae_in
+            vae_in,
         ):
         kwargs = {}
 
@@ -96,20 +95,10 @@ class SD3PipelineLoader(NodeBase):
 
         return {
             'pipeline': pipeline,
-            'transformer': pipeline.transformer,
-            'text_encoders': {
-                'text_encoder': pipeline.text_encoder,
-                'text_encoder_2': pipeline.text_encoder_2,
-                'text_encoder_3': pipeline.text_encoder_3,
-                'tokenizer': pipeline.tokenizer,
-                'tokenizer_2': pipeline.tokenizer_2,
-                'tokenizer_3': pipeline.tokenizer_3,
-            },
-            'vae': pipeline.vae,
         }
 
 class SD3TransformerLoader(NodeBase, NodeQuantization):
-    def execute(self, model_id, dtype, device, quantization, **kwargs):
+    def execute(self, model_id, dtype, compile, quantization, **kwargs):
         import os
         model_id = model_id or 'stabilityai/stable-diffusion-3.5-large'
 
@@ -121,24 +110,37 @@ class SD3TransformerLoader(NodeBase, NodeQuantization):
         else:
             model_path = model_id
 
+        quantization_config = None
+        if quantization == 'bitsandbytes':
+            from mellon.quantization import bitsandbytes
+            quantization_config = bitsandbytes(kwargs['bitsandbytes_weights'], dtype=dtype, double_quant=kwargs['bitsandbytes_double_quant'])
+
         transformer_model = SD3Transformer2DModel.from_pretrained(
             model_path,
             torch_dtype=dtype,
             subfolder="transformer" if not local_files_only else None,
             token=HF_TOKEN,
             local_files_only=local_files_only,
+            quantization_config=quantization_config,
         )
 
-        mm_id = self.mm_add(transformer_model, priority=3)
+        transformer_model._mm_id = self.mm_add(transformer_model, priority=3)
 
-        if quantization != 'none':
-            self.quantize(quantization, model=mm_id, device=device, **kwargs)
+        if quantization != 'none' and not quantization_config:
+            transformer_model = self.quantize(quantization, model=transformer_model._mm_id, **kwargs)
 
-        return { 'model': { 'transformer': mm_id, 'device': device, 'model_id': model_id } }
+        if compile:
+            from utils.memory_manager import memory_manager
+            from utils.torch_utils import compile
+            memory_manager.unload_all(exclude=transformer_model._mm_id)
+            transformer_model = compile(transformer_model)
+            self.mm_update(transformer_model._mm_id, model=transformer_model)
+
+        return { 'model': transformer_model }
 
 
 class SD3TextEncodersLoader(NodeBase, NodeQuantization):
-    def execute(self, model_id, dtype, load_t5, device, quantization, **kwargs):
+    def execute(self, model_id, dtype, load_t5, quantization, **kwargs):
         model_id = model_id or 'stabilityai/stable-diffusion-3.5-large'
 
         model_cfg = {
@@ -152,28 +154,31 @@ class SD3TextEncodersLoader(NodeBase, NodeQuantization):
         tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **model_cfg)
         text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **model_cfg)
         tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **model_cfg)
-        text_encoder = self.mm_add(text_encoder, priority=1)
-        text_encoder_2 = self.mm_add(text_encoder_2, priority=1)
+
+        text_encoder._mm_id = self.mm_add(text_encoder, priority=1)
+        text_encoder_2._mm_id = self.mm_add(text_encoder_2, priority=1)
 
         t5_encoder = None
         t5_tokenizer = None
         if load_t5:
+            if quantization == 'bitsandbytes':
+                from mellon.quantization import bitsandbytes
+                model_cfg['quantization_config'] = bitsandbytes(kwargs['bitsandbytes_weights'], dtype=dtype, double_quant=kwargs['bitsandbytes_double_quant'])
+
             t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **model_cfg)
             t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **model_cfg)
-            t5_encoder = self.mm_add(t5_encoder, priority=0)
+            t5_encoder._mm_id = self.mm_add(t5_encoder, priority=0)
 
-        if quantization != 'none' and t5_encoder:
-            self.quantize(quantization, model=t5_encoder, device=device, **kwargs)
+            if quantization != 'none' and not 'quantization_config' in model_cfg:
+                self.quantize(quantization, model=t5_encoder._mm_id, **kwargs)
 
         return { 'model': {
             'text_encoder': text_encoder,
             'tokenizer': tokenizer,
             'text_encoder_2': text_encoder_2,
             'tokenizer_2': tokenizer_2,
-            't5_encoder': t5_encoder,
-            't5_tokenizer': t5_tokenizer,
-            'device': device,
-            'model_id': model_id,
+            'text_encoder_3': t5_encoder,
+            'tokenizer_3': t5_tokenizer,
         }}
 
 class SD3PromptEncoder(NodeBase):
@@ -370,63 +375,65 @@ class SD3Sampler(NodeBase):
         elif positive['prompt_embeds'].shape[1] < negative['prompt_embeds'].shape[1]:
             positive['prompt_embeds'] = torch.nn.functional.pad(positive['prompt_embeds'], (0, 0, 0, negative['prompt_embeds'].shape[1] - positive['prompt_embeds'].shape[1]))
 
-        # 3. Create a dummy VAE
-        dummy_vae = AutoencoderKL(
-            in_channels=3,
-            out_channels=3,
-            down_block_types=['DownEncoderBlock2D', 'DownEncoderBlock2D', 'DownEncoderBlock2D', 'DownEncoderBlock2D'],
-            up_block_types=['UpDecoderBlock2D', 'UpDecoderBlock2D', 'UpDecoderBlock2D', 'UpDecoderBlock2D'],
-            block_out_channels=[128, 256, 512, 512],
-            layers_per_block=2,
-            latent_channels=16,
-        ).to(device)
-
-        # 4. Run the denoise loop
+        # 3. Run the denoise loop
         pipelineCls = StableDiffusion3Pipeline if latents_in is None else StableDiffusion3Img2ImgPipeline
 
-        sampling_pipe = pipelineCls.from_pretrained(
-            pipeline.config._name_or_path,
-            transformer=pipeline.transformer,
-            text_encoder=None,
-            text_encoder_2=None,
-            text_encoder_3=None,
-            tokenizer=None,
-            tokenizer_2=None,
-            tokenizer_3=None,
-            scheduler=sampling_scheduler,
-            vae=dummy_vae,
-            local_files_only=True,
-        )
+        def sampling():
+            dummy_vae = AutoencoderKL(
+                in_channels=3,
+                out_channels=3,
+                down_block_types=['DownEncoderBlock2D', 'DownEncoderBlock2D', 'DownEncoderBlock2D', 'DownEncoderBlock2D'],
+                up_block_types=['UpDecoderBlock2D', 'UpDecoderBlock2D', 'UpDecoderBlock2D', 'UpDecoderBlock2D'],
+                block_out_channels=[128, 256, 512, 512],
+                layers_per_block=2,
+                latent_channels=16,
+            )
 
-        sampling_config = {
-            'generator': generator,
-            'prompt_embeds': positive['prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
-            'pooled_prompt_embeds': positive['pooled_prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
-            'negative_prompt_embeds': negative['prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
-            'negative_pooled_prompt_embeds': negative['pooled_prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
-            'width': width,
-            'height': height,
-            'guidance_scale': cfg,
-            'num_inference_steps': steps,
-            'output_type': "latent",
-            'callback_on_step_end': self.pipe_callback,
-            'mu': mu,
-        }
+            sampling_pipe = pipelineCls.from_pretrained(
+                pipeline.config._name_or_path,
+                transformer=pipeline.transformer,
+                text_encoder=None,
+                text_encoder_2=None,
+                text_encoder_3=None,
+                tokenizer=None,
+                tokenizer_2=None,
+                tokenizer_3=None,
+                scheduler=sampling_scheduler,
+                local_files_only=True,
+                vae=dummy_vae.to(device),
+            )
 
-        if latents_in is not None:
-            sampling_config['width'] = None
-            sampling_config['height'] = None
-            sampling_config['image'] = latents_in
-            sampling_config['strength'] = 1 - (denoise_range[0] or 0)
+            sampling_config = {
+                'generator': generator,
+                'prompt_embeds': positive['prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
+                'pooled_prompt_embeds': positive['pooled_prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
+                'negative_prompt_embeds': negative['prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
+                'negative_pooled_prompt_embeds': negative['pooled_prompt_embeds'].to(device, dtype=pipeline.transformer.dtype),
+                'width': width,
+                'height': height,
+                'guidance_scale': cfg,
+                'num_inference_steps': steps,
+                'output_type': "latent",
+                'callback_on_step_end': self.pipe_callback,
+                'mu': mu,
+            }
+
+            if latents_in is not None:
+                sampling_config['width'] = None
+                sampling_config['height'] = None
+                sampling_config['image'] = latents_in
+                sampling_config['strength'] = 1 - (denoise_range[0] or 0)
+
+            latents = sampling_pipe(**sampling_config).images
+            del sampling_pipe, sampling_config, dummy_vae
+            return latents
 
         self.mm_load(pipeline.transformer, device)
         latents = self.mm_inference(
-            lambda: sampling_pipe(**sampling_config).images,
+            sampling,
             device,
             exclude=pipeline.transformer
         )
         latents = latents.to('cpu')
-
-        del sampling_pipe, sampling_config, dummy_vae
 
         return { 'latents': latents, 'pipeline_out': pipeline }

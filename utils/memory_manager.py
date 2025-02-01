@@ -12,8 +12,8 @@ def memory_flush(gc_collect=False, reset=False):
         gc.collect()
 
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
-        #torch.cuda.synchronize()
         torch.cuda.ipc_collect()
 
         if reset:
@@ -88,8 +88,10 @@ class MemoryManager:
 
 
     def unload_model(self, model_id):
-        if model_id in self.cache:
-            self.cache[model_id]['model'] = self.cache[model_id]['model'].to('cpu')
+        if model_id in self.cache and hasattr(self.cache[model_id]['model'], 'to'):
+            model = self.cache[model_id]['model'].to('cpu')
+            self.cache[model_id]['model'] = None
+            self.cache[model_id]['model'] = model
             self.cache[model_id]['device'] = 'cpu'
             memory_flush()
 
@@ -103,18 +105,19 @@ class MemoryManager:
             if model_id not in exclude:
                 self.unload_model(model_id)
 
-    def delete_model(self, model_id):
+    def delete_model(self, model_id, unload=False):
         model_id = model_id if isinstance(model_id, list) else [model_id]
 
         for m in model_id:
             if m in self.cache:
                 classname = self.cache[m]['model'].__class__.__name__ if hasattr(self.cache[m]['model'], '__class__') else 'Unknown'
                 logger.debug(f"Deleting model {classname}, id: {m}")
-                #self.unload_model(m)
-                del self.cache[m]['model']
+                if unload:
+                    self.unload_model(m)
+                self.cache[m]['model'] = None
                 del self.cache[m]
 
-        memory_flush()
+        memory_flush(gc_collect=True)
 
     def update_model(self, model_id, model=None, priority=None, unload=True):
         if model_id in self.cache:

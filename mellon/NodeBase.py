@@ -6,6 +6,7 @@ import time
 from utils.memory_manager import memory_flush, memory_manager
 from mellon.server import web_server
 import nanoid
+import numpy as np
 
 def get_module_params(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -23,32 +24,77 @@ def has_changed(params, args):
     return any(params.get(key) != args.get(key) for key in args if key in params)
 
 def are_different(a, b):
+    # quick identity check
+    if a is b:
+        return False
+
     # check if the types are different
     if type(a) != type(b):
         return True
+
+    # check custom hash, this value is king
+    if hasattr(a, "_MELLON_HASH") and hasattr(b, "_MELLON_HASH"):
+       return hasattr(a, "_MELLON_HASH") != hasattr(b, "_MELLON_HASH")
     
-    if isinstance(a, (list, tuple)):
-        if len(a) != len(b):
+    # common attributes
+    if hasattr(a, 'shape'):
+        if a.shape != b.shape:
             return True
-        
-        return any(are_different(x, y) for x, y in zip(a, b))
-
-    if isinstance(a, dict):
-        if a.keys() != b.keys():
-            return True
-        
-        return any(are_different(a[k], b[k]) for k in a)
-
     if hasattr(a, 'dtype'):
         if not hasattr(b, 'dtype') or a.dtype != b.dtype:
             return True
 
-    if hasattr(a, 'shape'):
-        if not hasattr(b, 'shape') or a.shape != b.shape:
+    # quick image comparison
+    if hasattr(a, 'size'):
+        if a.size != b.size:
             return True
-    
+    if hasattr(a, 'mode'):
+        if a.mode != b.mode:
+            return True
+
+    # deep PIL images comparison
+    if hasattr(a, 'getdata') and hasattr(a, 'width') and hasattr(a, 'height'):
+        # compare small images with tobytes(), possibly unnecessary optimization
+        if a.width*a.height < 32768:
+            return a.tobytes() != b.tobytes()
+        return not np.array_equal(np.asarray(a), np.asarray(b))
+
+    # trimesh comparison
+    if hasattr(a, 'vertices') and hasattr(a.vertices, 'shape'):
+        if are_different(a.vertices, b.vertices):
+            return True
+        if hasattr(a, 'visual') and hasattr(a.visual, 'material') and hasattr(a.visual.material, 'image'):
+            if are_different(a.visual.material.image, b.visual.material.image):
+                return True
+        if hasattr(a, 'faces') and hasattr(a.faces, 'shape'):
+            if are_different(a.faces, b.faces):
+                return True
+        # we assume that the mesh is the same if the vertices, faces and material are the same
+        # TODO: check if this is correct
+        return False
+
+    # compare numpy arrays
+    if isinstance(a, np.ndarray):
+        return not np.array_equal(a, b)
+
+    # compare tensors
     if isinstance(a, torch.Tensor):
         return not torch.equal(a, b)
+
+    # iterate list, tuple, dict
+    if isinstance(a, (list, tuple)):
+        if len(a) != len(b):
+            return True
+        return any(are_different(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        if a.keys() != b.keys():
+            return True
+        return any(are_different(a[k], b[k]) for k in a)
+
+    if hasattr(a, 'to_dict'):
+        x = a.to_dict()
+        y = b.to_dict()
+        return any(are_different(x[k], y[k]) for k in x)
 
     if hasattr(a, '__dict__') and hasattr(b, '__dict__'):
         if a.__dict__ != b.__dict__:
@@ -61,6 +107,7 @@ def are_different(a, b):
 
 class NodeBase():
     CALLBACK = 'execute'
+    FORCE_UNLOAD = True
 
     def __init__(self, node_id=None):
         self.node_id = node_id
@@ -89,13 +136,13 @@ class NodeBase():
 
         execution_time = time.time()
 
-        if self._has_changed(values):
+        if self._has_changed(values) or self._is_output_empty():
             self.params.update(values)
 
             # delete previously loaded models
             # TODO: delete a model only if something changed about it
             if self._mm_model_ids:
-                memory_manager.delete_model(self._mm_model_ids)
+                memory_manager.delete_model(self._mm_model_ids, unload=self.FORCE_UNLOAD)
                 self._mm_model_ids = []
 
             try:
@@ -127,7 +174,7 @@ class NodeBase():
         del self.params, self.output # TODO: check if this actually works with cuda
 
         if self._mm_model_ids:
-            memory_manager.delete_model(self._mm_model_ids)
+            memory_manager.delete_model(self._mm_model_ids, unload=self.FORCE_UNLOAD)
 
         memory_flush(gc_collect=True)
 
@@ -165,11 +212,11 @@ class NodeBase():
 
                 # options can be in the format: [ 1, 2, 3 ] or { '1': { }, '2': { }, '3': { } }
                 if isinstance(options, list):
-                    val = [values[key]] if isinstance(values[key], str) else values[key]
+                    val = [values[key]] if not isinstance(values[key], list) else values[key]
                     if any(v not in options for v in val):
                         raise ValueError(f"Invalid value for {key}: {values[key]}")
                 elif isinstance(options, dict):
-                    val = [values[key]] if isinstance(values[key], str) else values[key]
+                    val = [values[key]] if not isinstance(values[key], list) else values[key]
                     if any(v not in options for v in val):
                         raise ValueError(f"Invalid value for {key}: {values[key]}")
                 else:
@@ -191,6 +238,9 @@ class NodeBase():
             are_different(self.params.get(key), values.get(key))
             for key in values
         )
+    
+    def _is_output_empty(self):
+        return all(value is None for value in self.output.values())
     
     def pipe_callback(self, pipe, step_index, timestep, kwargs):
         import asyncio

@@ -378,7 +378,7 @@ class SDXLSampler(NodeBase):
 
         self.mm_load(pipeline.unet, device)
         latents = self.mm_inference(
-            lambda: denoise(),
+            denoise,
             device,
             exclude=pipeline.unet
         )
