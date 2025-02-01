@@ -15,6 +15,7 @@ from copy import deepcopy
 import random
 import signal
 import time
+import sys
 
 class WebServer:
     def __init__(self, module_map: dict, host: str = "0.0.0.0", port: int = 8080, cors: bool = False, cors_route: str = "*"):
@@ -87,18 +88,21 @@ class WebServer:
             self.shutdown_event = asyncio.Event()
             self.event_loop = asyncio.get_event_loop()
             self.is_shutting_down = False
-
-            # Set up signal handlers
-            def signal_handler():
-                if not self.is_shutting_down:
-                    asyncio.create_task(shutdown())
-
-            try:
+            
+            if hasattr(signal, "SIGBREAK"):  # Windows
+                def signal_handler(signum, frame):
+                    self.event_loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(shutdown())
+                    )
+                
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGBREAK):
+                    signal.signal(sig, signal_handler)
+            else:  # Unix/Linux/MacOS
                 for sig in (signal.SIGINT, signal.SIGTERM):
-                    self.event_loop.add_signal_handler(sig, signal_handler)
-            except NotImplementedError:
-                # For Windows compatibility
-                pass
+                    self.event_loop.add_signal_handler(
+                        sig,
+                        lambda: asyncio.create_task(shutdown())
+                    )
 
             runner = web.AppRunner(self.app, client_max_size=1024**4)
             await runner.setup()
