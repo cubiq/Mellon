@@ -59,7 +59,6 @@ class Resize(NodeBase):
             images = pad(images, (max(width, 1), max(height, 1)), Image.Resampling[resample])
         elif method == 'keep aspect ratio':
             ow, oh = images.size
-            print(f"Original size: {ow}x{oh}")
             if width == 0:
                 scale = height / oh
                 width = int(ow * scale)
