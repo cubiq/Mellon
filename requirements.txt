@@ -1,0 +1,13 @@
+aiohttp
+aiohttp_cors
+nanoid
+torch
+torchvision
+torchaudio
+git+https://github.com/huggingface/diffusers
+transformers
+accelerate
+safetensors
+protobuf
+sentencepiece
+einops
