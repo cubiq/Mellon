@@ -28,5 +28,4 @@ class TextToList(NodeBase):
     def execute(self, **kwargs):
         text = kwargs["text"]
         separator = kwargs["separator"]
-        print(separator)
         return [item.strip() for item in text.split(separator)]

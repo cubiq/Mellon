@@ -2,10 +2,46 @@ import logging
 logger = logging.getLogger('mellon')
 from modules import MODULE_MAP
 from mellon.server import server
-from utils.memory_menager import memory_manager
+from utils.memory_menager import memory_manager, memory_flush
 import numpy as np
 import torch
 import sys
+
+def print_gpu_tensors():
+    import gc
+    """
+    Iterates through all objects tracked by the garbage collector and prints a report
+    of all tensors that are currently residing on a CUDA device.
+    """
+    print("--- GPU Tensor Report ---")
+    # Run garbage collection to get the most accurate state
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    total_size = 0
+    for obj in gc.get_objects():
+        try:
+            # Check if the object is a tensor and if it's on a CUDA device
+            if torch.is_tensor(obj) and obj.is_cuda:
+                tensor_size = obj.element_size() * obj.nelement()
+                print(f"{type(obj).__name__:<20} | "
+                    f"Size: {tensor_size / 1024**2:.2f} MB | "
+                    f"Shape: {str(obj.shape):<25} | "
+                    f"Dtype: {obj.dtype}")
+                
+                # To find what's holding the reference, you can uncomment the following lines.
+                # Be aware, this can be very verbose.
+                # print("  - Referred by:")
+                # for referrer in gc.get_referrers(obj):
+                #     # Avoid printing the container itself
+                #     if referrer is not locals() and referrer is not globals():
+                #          print(f"    - {type(referrer).__name__}")
+
+        except (RuntimeError, ReferenceError):
+            # Some objects might be in a weird state during inspection and raise an error
+            pass
+    print(f"--- Total GPU Tensor Memory: {total_size / 1024**2:.2f} MB ---")
+    print("-------------------------")
 
 def get_module_output(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -133,17 +169,19 @@ class NodeBase:
         
         # if any of the values has changed or self.output is empty, we need to execute the node
         if (not deep_equal(self.params, params)) or any(v is None for v in self.output.values()):
-            self.params.update(params)
+            self.params = params
+            self.output = {k: None for k in self.output}
+            del params
             if self._mm_models:
                 for model_id in self._mm_models:
                     memory_manager.remove(model_id)
                 self._mm_models = []
 
             try:
-                output = getattr(self, self.CALLBACK)(**params)
+                output = getattr(self, self.CALLBACK)(**self.params)
             except Exception as e:
                 self.params = {}
-                self.output = {k: None for k in self.output}
+                #self.output = {k: None for k in self.output}
                 raise RuntimeError(f"Error executing {self.module_name}.{self.class_name}: {e}")
 
             if isinstance(output, dict):
@@ -158,6 +196,7 @@ class NodeBase:
                 # if only one output is returned, assign it to the first output
                 self.output[next(iter(self.output))] = output
 
+        memory_flush()
         return self.output
     
     def __del__(self):
@@ -195,7 +234,9 @@ class NodeBase:
 
         model_id = memory_manager.add(model, priority)
         
-        self._mm_models.append(model_id)
+        if model_id not in self._mm_models:
+            self._mm_models.append(model_id)
+        
         return model_id
     
     def mm_remove(self, model):
@@ -208,12 +249,21 @@ class NodeBase:
         
         return model_id
     
+    def mm_get(self, model):
+        if self.node_id is None:
+            return model
+        
+        return memory_manager.get_model(model)
+    
     def mm_update(self, model, **kwargs):       
+        if self.node_id is None:
+            return
+        
         return memory_manager.update(model, **kwargs)
     
     def mm_load(self, model, device=None):
         if self.node_id is None:
-            return model.to('cpu')
+            return model.to(device)
         
         return memory_manager.load_model(model, device)
     

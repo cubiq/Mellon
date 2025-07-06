@@ -22,24 +22,19 @@ class MemoryManager:
         self.cache = {}
     
     def add(self, model, priority=1) -> str:
-        device = model.device if hasattr(model, 'device') else 'cpu'
-
         if hasattr(model, '_mm_id'):
             model_id = model._mm_id
             if model_id in self.cache:
-                self.update(model_id, model=model, priority=priority, device=device)
+                self.update(model_id, model=model, priority=priority)
                 return model_id
-            else:
-                model.to('cpu')
 
         model_id = nanoid.generate()
         model._mm_id = model_id
         self.cache[model_id] = {
             'model': model,
-            'device': device,
             'priority': priority,
             'last_used': time.time(),
-            'size': 0
+            #'size': 0
         }
         return model_id
     
@@ -54,13 +49,15 @@ class MemoryManager:
         memory_flush()
         return model_id
     
-    def update(self, model, **kwargs):
-        model_id = model if isinstance(model, str) else model._mm_id if hasattr(model, '_mm_id') else None
+    def update(self, model_id, model=None, priority=None):
+        model_id = model_id if isinstance(model_id, str) else model_id._mm_id if hasattr(model_id, '_mm_id') else None
         if model_id is None or model_id not in self.cache:
             return None
         
-        for k, v in kwargs.items():
-            self.cache[model_id][k] = v
+        if model is not None:
+            self.cache[model_id]['model'] = model
+        if priority is not None:
+            self.cache[model_id]['priority'] = priority
         
         self.cache[model_id]['last_used'] = time.time()
         memory_flush()
@@ -85,10 +82,10 @@ class MemoryManager:
         exclude_ids.append(model_id)
     
         self.cache[model_id]['last_used'] = time.time()
-        model = self.cache[model_id]['model']
+        x = self.cache[model_id]['model']
 
-        if model.device == device:
-            return model
+        if str(x.device) == str(device):
+            return x
         
         cache_priority = self._get_unload_candidates(device, exclude_ids)
 
@@ -106,21 +103,21 @@ class MemoryManager:
 
         while True:
             try:
-                memory_current = torch.cuda.mem_get_info()[0] if 'cuda' in device else 0
-                print(f"Memory current: {memory_current / 1024 / 1024} MB")
-                model = model.to(device)
-                self.cache[model_id]['model'] = model
-                self.cache[model_id]['device'] = device
-                if self.cache[model_id]['size'] == 0 and 'cuda' in device:
-                    self.cache[model_id]['size'] = memory_current - torch.cuda.mem_get_info()[0]
-                return model
+                #memory_current = torch.cuda.mem_get_info()[0] if 'cuda' in device else 0
+
+                x = x.to(device)
+                #self.cache[model_id]['model'] = x
+                #self.cache[model_id]['device'] = device
+                #if self.cache[model_id]['size'] == 0 and 'cuda' in device:
+                #    self.cache[model_id]['size'] = memory_current - torch.cuda.mem_get_info()[0]
+                return x
             except torch.OutOfMemoryError as e:
                 if not cache_priority:
                     logger.debug(f"Cannot free enough memory to load model {model_id}")
                     raise e
                 
-                k = cache_priority.pop(0)[3]
-                logger.debug(f"OOM error, unloading lower priority model: {k}")
+                k = cache_priority.pop(0)[2]
+                logger.debug(f"OOM. Trying to unload lower priority model: {k}")
                 self.unload_model(k)
             except Exception as e:
                 logger.error(f"Error loading model {model_id}")
@@ -130,11 +127,9 @@ class MemoryManager:
         model_id = model if isinstance(model, str) else model._mm_id if hasattr(model, '_mm_id') else None
         if model_id is None or model_id not in self.cache:
             return None
-        print(f"Unloading model {model_id}")
-        model = self.cache[model_id]['model'].to('cpu')
-        self.cache[model_id]['model'] = None
-        self.cache[model_id]['model'] = model
-        self.cache[model_id]['device'] = 'cpu'
+
+        unloaded = self.cache[model_id]['model'].to('cpu')
+        self.cache[model_id]['model'] = unloaded
         memory_flush()
 
         return self.cache[model_id]['model']
@@ -142,7 +137,7 @@ class MemoryManager:
     def unload_all(self, device=None):
         device = device if device else DEFAULT_DEVICE
         for k, v in self.cache.items():
-            if str(v['device']) == str(device):
+            if str(v['model'].device) == str(device):
                 self.unload_model(k)
     
     def exec(self, func, device, exclude=[], args=None, kwargs=None):
@@ -155,10 +150,8 @@ class MemoryManager:
         # Get a list of all models on the target device that can be unloaded.
         cache_priority = self._get_unload_candidates(device, exclude_ids=exclude_ids)
 
-        if args is None:
-            args = []
-        if kwargs is None:
-            kwargs = {}
+        args = args or []
+        kwargs = kwargs or {}
 
         while True:
             try:
@@ -171,7 +164,7 @@ class MemoryManager:
                     raise e
                 
                 # Unload the lowest-priority model.
-                k = cache_priority.pop(0)[3]
+                k = cache_priority.pop(0)[2]
                 logger.debug(f"OOM during exec. Unloading model '{k}' to free VRAM.")
                 self.unload_model(k)
             except Exception as e:
@@ -186,11 +179,11 @@ class MemoryManager:
         """
         cache_priority = []
         for k, v in self.cache.items():
-            # Check if the model is on the target device and not in the exclude list.
-            if str(v['device']) == str(device) and k not in exclude_ids:
-                cache_priority.append((v['priority'], v['last_used'], v['size'], k))
+            # Check if the model is on the target device and not in the exclude list
+            if str(v['model'].device) == str(device) and k not in exclude_ids:
+                cache_priority.append((v['priority'], v['last_used'], k))
         
-        # Sort by priority (asc) then last_used (asc) to find the best unload candidate first.
+        # Sort by priority then last_used to find the best unload candidate
         cache_priority.sort(key=lambda x: (x[0], x[1]))
         return cache_priority
 

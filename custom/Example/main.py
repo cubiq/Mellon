@@ -1,4 +1,3 @@
-import time
 from mellon.NodeBase import NodeBase
 
 class CustomNode(NodeBase):

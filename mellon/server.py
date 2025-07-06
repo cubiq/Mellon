@@ -492,6 +492,13 @@ class WebServer:
                 work_module = import_module(f"{module}.main")
                 work_action = getattr(work_module, action)
 
+                # tell the client that the node is running
+                self.queue_message({
+                    "type": "progress",
+                    "node": id,
+                    "progress": -1, # -1 sets the progress to indeterminate
+                }, sid)
+
                 start_time = time.time()
 
                 # if the node is not in the cache, initialize it 
@@ -504,12 +511,6 @@ class WebServer:
                 # set the session id, it can be used to send messages directly from the node back to the client
                 self.node_cache[id]._sid = sid
 
-                self.queue_message({
-                    "type": "progress",
-                    "node": id,
-                    "progress": -1, # -1 sets the progress to indeterminate
-                }, sid)
-
                 # execute the node
                 self.node_cache[id](**args)
 
@@ -518,19 +519,13 @@ class WebServer:
                 self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
                 self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
 
-                # Use run_coroutine_threadsafe to schedule background tasks from executor
+                # the node has completed
                 self.queue_message({
                     "type": "executed",
                     "node": id,
                     "executionTime": self.node_cache[id]._execution_time
                 }, sid)
-                # asyncio.run_coroutine_threadsafe(
-                #     self.background_queue.put((self.broadcast, ({
-                #         "type": "executed",
-                #         "node": id,
-                #     }, sid))),
-                #     self.loop
-                # )
+
                 for ui_key, data_key in ui_fields.items():
                     # if the data key is an output, get the value from the output otherwise from the params
                     if data_key in self.node_cache[id].output:
@@ -564,6 +559,7 @@ class WebServer:
                     if message:
                         self.queue_message(message, sid)
 
+        # the graph has completed
         self.queue_message({
             "type": "graph_completed",
             "sid": sid,

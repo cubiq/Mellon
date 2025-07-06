@@ -2,12 +2,13 @@ import torch
 
 def get_clip_prompt_embeds(prompt, tokenizer, text_encoder, clip_skip=None, noise=0.0, scale=1.0):
     max_length = tokenizer.model_max_length
-    bos = torch.tensor([tokenizer.bos_token_id]).unsqueeze(0).to(text_encoder.device)
-    eos = torch.tensor([tokenizer.eos_token_id]).unsqueeze(0).to(text_encoder.device)
-    one = torch.tensor([1]).unsqueeze(0).to(text_encoder.device)
+    device = text_encoder.device
+    bos = torch.tensor([tokenizer.bos_token_id], device=device).unsqueeze(0)
+    eos = torch.tensor([tokenizer.eos_token_id], device=device).unsqueeze(0)
+    one = torch.tensor([1], device=device).unsqueeze(0)
     pad = tokenizer.pad_token_id
 
-    text_input_ids = tokenizer(prompt, truncation=False, return_tensors="pt").input_ids.to(text_encoder.device)
+    text_input_ids = tokenizer(prompt, truncation=False, return_tensors="pt").input_ids.to(device)
 
     # remove start and end tokens
     text_input_ids = text_input_ids[:, 1:-1]
@@ -43,6 +44,7 @@ def get_clip_prompt_embeds(prompt, tokenizer, text_encoder, clip_skip=None, nois
         concat_embeds.append(prompt_embeds)
 
     prompt_embeds = torch.cat(concat_embeds, dim=1)
+    del text_encoder, bos, eos, one, pad, text_input_ids, chunks, concat_embeds, mask, chunk
 
     if scale != 1.0:
         prompt_embeds = prompt_embeds * scale
@@ -64,8 +66,11 @@ def get_clip_prompt_embeds(prompt, tokenizer, text_encoder, clip_skip=None, nois
         pooled_prompt_embeds = pooled_prompt_embeds + embed_noise
 
         torch.set_rng_state(generator_state)
+    
+    prompt_embeds = prompt_embeds.to('cpu').detach().clone()
+    pooled_prompt_embeds = pooled_prompt_embeds.to('cpu').detach().clone()
 
-    return (prompt_embeds, pooled_prompt_embeds)
+    return prompt_embeds, pooled_prompt_embeds
 
 
 def get_t5_prompt_embeds(prompt, tokenizer, text_encoder, max_sequence_length=256, noise=0.0):
@@ -73,10 +78,11 @@ def get_t5_prompt_embeds(prompt, tokenizer, text_encoder, max_sequence_length=25
 
     # could be tokenizer.model_max_length but we are using a more conservative value (256)
     max_length = max_sequence_length
-    eos = torch.tensor([1]).unsqueeze(0).to(text_encoder.device)
+    device = text_encoder.device
+    eos = torch.tensor([1], device=device).unsqueeze(0)
     pad = 0 # pad token is 0
 
-    text_inputs_ids = tokenizer(prompt, truncation = False, add_special_tokens=True, return_tensors="pt").input_ids.to(text_encoder.device)
+    text_inputs_ids = tokenizer(prompt, truncation = False, add_special_tokens=True, return_tensors="pt").input_ids.to(device)
 
     # remove end token
     text_inputs_ids = text_inputs_ids[:, :-1]
@@ -101,6 +107,7 @@ def get_t5_prompt_embeds(prompt, tokenizer, text_encoder, max_sequence_length=25
         concat_embeds.append(prompt_embeds)
 
     prompt_embeds = torch.cat(concat_embeds, dim=1)
+    del text_encoder, eos, pad, text_inputs_ids, chunks, concat_embeds, mask, chunk
 
     if noise > 0.0:
         generator_state = torch.get_rng_state()
@@ -109,5 +116,7 @@ def get_t5_prompt_embeds(prompt, tokenizer, text_encoder, max_sequence_length=25
         embed_noise = torch.randn_like(prompt_embeds) * prompt_embeds.abs().mean() * noise
         prompt_embeds = prompt_embeds + embed_noise
         torch.set_rng_state(generator_state)
+
+    prompt_embeds = prompt_embeds.to('cpu').detach().clone()
 
     return prompt_embeds
