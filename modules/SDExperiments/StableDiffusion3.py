@@ -240,10 +240,10 @@ class SD3Sampler(NodeBase):
         "pipeline": { "label": "Pipeline", "display": "input", "type": "pipeline" },
         "embeds": { "label": "Embeddings", "display": "input", "type": "embedding" },
         "latents": { "label": "Latents", "display": "output", "type": "latent" },
-        "width": { "label": "Width", "type": "int", "default": 1024, "min": 64, "max": 1024, "step": 8 },
-        "height": { "label": "Height", "type": "int", "default": 1024, "min": 64, "max": 1024, "step": 8 },
+        "width": { "label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8 },
+        "height": { "label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8 },
         "seed": { "label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295 },
-        "steps": { "label": "Steps", "type": "int", "default": 30, "min": 1, "max": 1000 },
+        "steps": { "label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 1000 },
         "cfg": { "label": "Guidance", "type": "float", "default": 5, "min": 0.0, "max": 100.0, "step": 0.5 },
         "scheduler": { "label": "Scheduler", "type": "string", "options": {
             "FlowMatchEulerDiscreteScheduler": "Flow Match Euler Discrete",
