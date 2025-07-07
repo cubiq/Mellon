@@ -6,7 +6,7 @@ from mellon.config import CONFIG
 from utils.huggingface import local_files_only, get_local_model_ids
 from diffusers import StableDiffusion3Pipeline, SD3Transformer2DModel, AutoencoderKL
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
-from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds
+from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae
 
 HF_TOKEN = CONFIG.hf['token']
 
@@ -30,6 +30,9 @@ class SD3PipelineLoader(NodeBase):
             token=HF_TOKEN,
             local_files_only=local_files_only(model_id),
         )
+
+        if dtype == torch.float16 and pipeline.vae.config.force_upcast:
+            pipeline.vae = upcast_vae(pipeline.vae)
 
         self.mm_add(pipeline.transformer, priority=3)
         self.mm_add(pipeline.text_encoder, priority=1)
@@ -118,7 +121,7 @@ class SD3PipelineLoader(NodeBase):
 
 class SD3PromptEncoder(NodeBase):
     label = "SD3 Prompt Encoder"
-    category = "encoder"
+    category = "embedding"
     resizable = True
     params = {
         "pipeline": { "label": "Encoders", "display": "input", "type": "pipeline" },
@@ -339,7 +342,12 @@ class SD3Sampler(NodeBase):
             config['negative_pooled_prompt_embeds'] = config['negative_pooled_prompt_embeds'].to(device, dtype=pipe.transformer.dtype)
 
             latents = pipe(**config).images
-            return latents
+            config['prompt_embeds'] = config['prompt_embeds'].to('cpu')
+            config['pooled_prompt_embeds'] = config['pooled_prompt_embeds'].to('cpu')
+            config['negative_prompt_embeds'] = config['negative_prompt_embeds'].to('cpu')
+            config['negative_pooled_prompt_embeds'] = config['negative_pooled_prompt_embeds'].to('cpu')
+            del pipe, config
+            return latents.to('cpu').detach().clone()
 
         self.mm_load(sampling_pipeline.transformer, device)
         latents = self.mm_exec(
@@ -347,7 +355,7 @@ class SD3Sampler(NodeBase):
             device,
             exclude=[sampling_pipeline.transformer],
         )
-        latents = latents.to('cpu').detach().clone()
+
         del sampling_pipeline, sampling_config, dummy_vae
 
         return { "latents": latents }

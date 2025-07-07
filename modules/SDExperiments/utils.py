@@ -120,3 +120,29 @@ def get_t5_prompt_embeds(prompt, tokenizer, text_encoder, max_sequence_length=25
     prompt_embeds = prompt_embeds.to('cpu').detach().clone()
 
     return prompt_embeds
+
+def upcast_vae(model):
+    from diffusers.models.attention_processor import AttnProcessor2_0, XFormersAttnProcessor
+
+    dtype = model.dtype
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        new_dtype = torch.bfloat16
+    else:
+        new_dtype = torch.float32
+
+    model = model.to(dtype=new_dtype)
+    use_torch_2_0_or_xformers = isinstance(
+        model.decoder.mid_block.attentions[0].processor,
+        (
+            AttnProcessor2_0,
+            XFormersAttnProcessor,
+        ),
+    )
+    # if xformers or torch_2_0 is used attention block does not need
+    # to be in float32 which can save lots of memory
+    if use_torch_2_0_or_xformers:
+        model.post_quant_conv.to(dtype)
+        model.decoder.conv_in.to(dtype)
+        model.decoder.mid_block.to(dtype)
+
+    return model

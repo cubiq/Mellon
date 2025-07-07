@@ -140,7 +140,7 @@ class MemoryManager:
             if str(v['model'].device) == str(device):
                 self.unload_model(k)
     
-    def exec(self, func, device, exclude=[], args=None, kwargs=None):
+    def exec(self, func, device, exclude=[], args=None, kwargs=None, inference_mode=True):
         exclude_ids = []
         for v in exclude:
             k = v if isinstance(v, str) else v._mm_id if hasattr(v, '_mm_id') else None
@@ -155,7 +155,11 @@ class MemoryManager:
 
         while True:
             try:
-                return func(*args, **kwargs)
+                if inference_mode:
+                    with torch.inference_mode():
+                        return func(*args, **kwargs)
+                else:
+                    return func(*args, **kwargs)
             except torch.cuda.OutOfMemoryError as e:
                 # If we're out of memory, we need to unload a model.
                 if not cache_priority:

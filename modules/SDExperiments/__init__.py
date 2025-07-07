@@ -30,31 +30,31 @@ MODULE_MAP = {
         }
     },
 
-    'SD3TextEncodersLoader': {
-        'label': 'SD3 Text Encoders Loader',
-        'description': 'Load the CLIP and T5 Text Encoders',
-        'category': 'loader',
-        'params': {
-            'encoders': {
-                'label': 'SD3 Encoders',
-                'display': 'output',
-                'type': 'SD3TextEncoders',
-            },
-            'model_id': {
-                'label': 'Model ID',
-                'type': 'string',
-                'default': 'stabilityai/stable-diffusion-3.5-large',
-                'options': get_local_model_ids(class_name="StableDiffusion3Pipeline"),
-                'display': 'autocomplete',
-                'fieldOptions': { "noValidation": True, "model_loader": True },
-            },
-            'dtype': {
-                'label': 'Dtype',
-                'type': 'string',
-                'default': 'bfloat16',
-                'options': ['auto', 'float32', 'float16', 'bfloat16'],
-            },
-            'load_t5': { 'label': 'Load T5 Encoder', 'type': 'boolean', 'default': True }
-        },
-    },
+    # 'SD3TextEncodersLoader': {
+    #     'label': 'SD3 Text Encoders Loader',
+    #     'description': 'Load the CLIP and T5 Text Encoders',
+    #     'category': 'loader',
+    #     'params': {
+    #         'encoders': {
+    #             'label': 'SD3 Encoders',
+    #             'display': 'output',
+    #             'type': 'SD3TextEncoders',
+    #         },
+    #         'model_id': {
+    #             'label': 'Model ID',
+    #             'type': 'string',
+    #             'default': 'stabilityai/stable-diffusion-3.5-large',
+    #             'options': get_local_model_ids(class_name="StableDiffusion3Pipeline"),
+    #             'display': 'autocomplete',
+    #             'fieldOptions': { "noValidation": True, "model_loader": True },
+    #         },
+    #         'dtype': {
+    #             'label': 'Dtype',
+    #             'type': 'string',
+    #             'default': 'bfloat16',
+    #             'options': ['auto', 'float32', 'float16', 'bfloat16'],
+    #         },
+    #         'load_t5': { 'label': 'Load T5 Encoder', 'type': 'boolean', 'default': True }
+    #     },
+    # },
 }
