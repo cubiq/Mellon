@@ -12,7 +12,7 @@ data/*
 !data/.gitkeep
 
 web/user/*
-!web/user/ExampleField.json
+!web/user/ExampleField.js
 
 .venv
 venv
