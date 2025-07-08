@@ -243,8 +243,8 @@ class SD3Sampler(NodeBase):
         "width": { "label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8 },
         "height": { "label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8 },
         "seed": { "label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295 },
-        "steps": { "label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 1000 },
-        "cfg": { "label": "Guidance", "type": "float", "default": 5, "min": 0.0, "max": 100.0, "step": 0.5 },
+        "steps": { "label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 100 },
+        "cfg": { "label": "Guidance", "type": "float", "display": "slider","default": 5, "min": 0.0, "max": 50.0, "step": 0.5 },
         "scheduler": { "label": "Scheduler", "type": "string", "options": {
             "FlowMatchEulerDiscreteScheduler": "Flow Match Euler Discrete",
             "FlowMatchHeunDiscreteScheduler": "Flow Match Heun Discrete",
@@ -329,6 +329,7 @@ class SD3Sampler(NodeBase):
             'guidance_scale': cfg,
             'num_inference_steps': steps,
             'output_type': "latent",
+            'callback_on_step_end': self.pipe_callback,
         }
 
         del positive, negative, pipeline, embeds

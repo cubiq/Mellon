@@ -19,7 +19,7 @@ pip install --upgrade pip
 Install [pytorch](https://pytorch.org/get-started/locally/) for your platform. Generally with:
 
 ```bash
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 Finally install the dependencies.

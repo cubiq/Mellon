@@ -7,42 +7,6 @@ import numpy as np
 import torch
 import sys
 
-def print_gpu_tensors():
-    import gc
-    """
-    Iterates through all objects tracked by the garbage collector and prints a report
-    of all tensors that are currently residing on a CUDA device.
-    """
-    print("--- GPU Tensor Report ---")
-    # Run garbage collection to get the most accurate state
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    total_size = 0
-    for obj in gc.get_objects():
-        try:
-            # Check if the object is a tensor and if it's on a CUDA device
-            if torch.is_tensor(obj) and obj.is_cuda:
-                tensor_size = obj.element_size() * obj.nelement()
-                print(f"{type(obj).__name__:<20} | "
-                    f"Size: {tensor_size / 1024**2:.2f} MB | "
-                    f"Shape: {str(obj.shape):<25} | "
-                    f"Dtype: {obj.dtype}")
-                
-                # To find what's holding the reference, you can uncomment the following lines.
-                # Be aware, this can be very verbose.
-                # print("  - Referred by:")
-                # for referrer in gc.get_referrers(obj):
-                #     # Avoid printing the container itself
-                #     if referrer is not locals() and referrer is not globals():
-                #          print(f"    - {type(referrer).__name__}")
-
-        except (RuntimeError, ReferenceError):
-            # Some objects might be in a weird state during inspection and raise an error
-            pass
-    print(f"--- Total GPU Tensor Memory: {total_size / 1024**2:.2f} MB ---")
-    print("-------------------------")
-
 def get_module_output(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
     return { p: None for p in params if 'display' in params[p] and params[p]['display'] == 'output' }
@@ -123,8 +87,11 @@ class NodeBase:
         self._sid = None
         self._execution_time = { 'last': None, 'min': None, 'max': None }
         self._mm_models = []
+        self._interrupt = False
 
     def __call__(self, **kwargs):
+        self._interrupt = False
+        
         # filter out params that are not in the default_params
         params = { key: kwargs[key] for key in kwargs if key in self.default_params }
 
@@ -212,6 +179,25 @@ class NodeBase:
         
         del self.params, self.output
     
+    def pipe_callback(self, pipe, step_index, timestep, callback_kwargs):
+        if not self.node_id:
+            return
+        
+        if self._interrupt:
+            pipe._interrupt = True
+        
+        progress = int((step_index + 1) / pipe._num_timesteps * 100)
+        self.progress(progress)
+        
+        return callback_kwargs
+
+
+    """
+    ╭───────────╮
+      WebSocket
+    ╰───────────╯
+    """
+
     def ws_message(self, message):
         if not self._sid:
             return
@@ -221,13 +207,20 @@ class NodeBase:
     def progress(self, progress: int):
         if not self._sid or not self.node_id:
             return
-        
+                
         server.queue_message({
             "type": "progress",
             "node": self.node_id,
             "progress": progress,
         }, self._sid)
-    
+
+
+    """
+    ╭────────────────╮
+      Memory Manager
+    ╰────────────────╯
+    """
+
     def mm_add(self, model, priority=1):
         if self.node_id is None:
             return model
