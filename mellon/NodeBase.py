@@ -185,6 +185,23 @@ class NodeBase:
         
         if self._interrupt:
             pipe._interrupt = True
+
+        if hasattr(pipe, '_cfg_cutoff_step') and pipe._cfg_cutoff_step is not None:
+            cutoff_step = int(pipe._num_timesteps * pipe._cfg_cutoff_step)
+            if step_index >= cutoff_step:
+                if step_index == cutoff_step:
+                    pipe._guidance_scale = 0.0
+                    prompt_embeds = callback_kwargs['prompt_embeds']
+                    #prompt_embeds[1] = prompt_embeds[0]
+                    #callback_kwargs["prompt_embeds"] = prompt_embeds[num_images:]
+                    prompt_embeds = prompt_embeds[-1:]
+                    callback_kwargs['prompt_embeds'] = prompt_embeds
+
+                latents = callback_kwargs['latents']
+                if latents.shape[0] > 1:
+                    latents = latents[:1]
+                    #latents = latents[:num_images]
+                    callback_kwargs['latents'] = latents
         
         progress = int((step_index + 1) / pipe._num_timesteps * 100)
         self.progress(progress)

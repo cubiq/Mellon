@@ -245,6 +245,8 @@ class SD3Sampler(NodeBase):
         "seed": { "label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295 },
         "steps": { "label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 100 },
         "cfg": { "label": "Guidance", "type": "float", "display": "slider","default": 5, "min": 0.0, "max": 50.0, "step": 0.5 },
+        "cfg_cutoff": { "label": "Enable CFG Cutoff", "type": "boolean", "default": False, "onChange": { True: ["cfg_step"], False: [] } },
+        "cfg_step": { "label": "Cutoff Step", "type": "float", "display": "slider", "default": 0, "min": 0, "max": 1, "step": 0.01, "onChange": { True: ["cfg_cutoff"], False: [] } },
         "scheduler": { "label": "Scheduler", "type": "string", "options": {
             "FlowMatchEulerDiscreteScheduler": "Flow Match Euler Discrete",
             "FlowMatchHeunDiscreteScheduler": "Flow Match Heun Discrete",
@@ -259,6 +261,8 @@ class SD3Sampler(NodeBase):
         seed = kwargs.get('seed', 0)
         steps = kwargs.get('steps', 30)
         cfg = kwargs.get('cfg', 5)
+        cfg_cutoff = kwargs.get('cfg_cutoff', False)
+        cfg_step = kwargs.get('cfg_step', 0)
         scheduler = kwargs.get('scheduler', 'FlowMatchEulerDiscreteScheduler')
         device = kwargs.get('device', DEFAULT_DEVICE)
 
@@ -330,7 +334,12 @@ class SD3Sampler(NodeBase):
             'num_inference_steps': steps,
             'output_type': "latent",
             'callback_on_step_end': self.pipe_callback,
+            #'num_images_per_prompt': 1, TODO: add support for multiple images
         }
+
+        if cfg_cutoff:
+            sampling_pipeline._cfg_cutoff_step = cfg_step
+            sampling_config['callback_on_step_end_tensor_inputs'] = ["latents", "prompt_embeds"]
 
         del positive, negative, pipeline, embeds
     
