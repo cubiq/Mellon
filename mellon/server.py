@@ -11,6 +11,7 @@ from pathlib import Path
 import traceback
 import time
 from copy import deepcopy
+import hashlib
 
 from mellon.config import CONFIG
 from modules import MODULE_MAP
@@ -31,6 +32,8 @@ class WebServer:
             work_dir: str = 'data',
             data_dir: str = 'data'
         ):
+        self.instance = nanoid.generate(size=10)
+
         self.modules = modules
         self.ws_sessions = {}
 
@@ -221,7 +224,10 @@ class WebServer:
                     'params': params
                 }
         
-        return web.json_response(output)
+        return web.json_response({
+            'instance': self.instance,
+            'nodes': output
+        })
 
     async def cache(self, request):
         node = request.match_info.get('node')
@@ -644,7 +650,7 @@ class WebServer:
         logger.debug(f"Websocket connection opened: {sid}")
 
         # send the welcome message together with the ids of the cached nodes
-        await self.broadcast({"type": "welcome", "sid": sid, "cachedNodes": list(self.node_cache.keys())}, sid)
+        await self.broadcast({"type": "welcome", "instance": self.instance, "sid": sid, "cachedNodes": list(self.node_cache.keys())}, sid)
         
         try:
             async for msg in ws:
