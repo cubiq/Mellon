@@ -107,12 +107,20 @@ class NodeBase:
             
             if 'type' in self.default_params[key]:
                 type = self.default_params[key]['type']
+                if isinstance(type, list):
+                    type = type[0]
+
                 if type.startswith('int'):
                     params[key] = int(value or 0) if not isinstance(value, list) else [int(v) for v in value]
                 elif type.startswith('float'):
                     params[key] = float(value or 0) if not isinstance(value, list) else [float(v) for v in value]
                 elif type.startswith('str') or type.startswith('text'):
-                    params[key] = str(value or '') if not isinstance(value, list) else [str(v) for v in value]
+                    if isinstance(value, dict):
+                        params[key] = value
+                    elif isinstance(value, list):
+                        params[key] = [str(v) for v in value]
+                    else:
+                        params[key] = str(value or '')
                 elif type.startswith('bool'):
                     params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
             
@@ -188,20 +196,10 @@ class NodeBase:
 
         if hasattr(pipe, '_cfg_cutoff_step') and pipe._cfg_cutoff_step is not None:
             cutoff_step = int(pipe._num_timesteps * pipe._cfg_cutoff_step)
-            if step_index >= cutoff_step:
-                if step_index == cutoff_step:
-                    pipe._guidance_scale = 0.0
-                    prompt_embeds = callback_kwargs['prompt_embeds']
-                    #prompt_embeds[1] = prompt_embeds[0]
-                    #callback_kwargs["prompt_embeds"] = prompt_embeds[num_images:]
-                    prompt_embeds = prompt_embeds[-1:]
-                    callback_kwargs['prompt_embeds'] = prompt_embeds
-
-                latents = callback_kwargs['latents']
-                if latents.shape[0] > 1:
-                    latents = latents[:1]
-                    #latents = latents[:num_images]
-                    callback_kwargs['latents'] = latents
+            if step_index == cutoff_step:
+                pipe._guidance_scale = 0.0
+                callback_kwargs['prompt_embeds'] = callback_kwargs['prompt_embeds'][-1:]
+                callback_kwargs['pooled_prompt_embeds'] = callback_kwargs['pooled_prompt_embeds'][-1:]
         
         progress = int((step_index + 1) / pipe._num_timesteps * 100)
         self.progress(progress)

@@ -78,6 +78,8 @@ class Config:
             'app_root': app_root,
             'work_dir': cfg.get('paths', 'work_dir', fallback=os.path.join(app_root, 'data')),
             'data': cfg.get('paths', 'data', fallback=os.path.join(app_root, 'data')),
+            'upscalers': cfg.get('paths', 'upscalers', fallback=os.path.join(app_root, 'data', 'upscalers')),
+            #'preprocessors': cfg.get('paths', 'preprocessors', fallback=os.path.join(app_root, 'data', 'preprocessors')),
             'temp': cfg.get('paths', 'temp', fallback=os.path.join(app_root, 'data', 'temp')),
         }
         if self.paths['work_dir'] == '~':
@@ -91,14 +93,16 @@ class Config:
             self.paths['data'] = self.paths['work_dir']
         if self.paths['temp'] == '':
             self.paths['temp'] = os.path.join(self.paths['data'], 'temp')
+        if self.paths['upscalers'] == '':
+            self.paths['upscalers'] = os.path.join(self.paths['data'], 'upscalers')
         
         # Make sure all paths are absolute
         for path, value in self.paths.items():
             if not os.path.isabs(value):
                 self.paths[path] = os.path.join(self.paths['work_dir'], value)
 
-            if not os.path.exists(value) and path != 'work_dir':
-                os.makedirs(value)
+            if not os.path.exists(self.paths[path]) and path != 'work_dir':
+                os.makedirs(self.paths[path])
 
         self.environ = cfg['environ'] if 'environ' in cfg else {}
         for key, value in self.environ.items():

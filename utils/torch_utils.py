@@ -56,7 +56,20 @@ def compile(model):
 
 def TensorToImage(tensor):
     from torchvision.transforms import v2 as tt
-    if len(tensor.shape) == 3:
-        tensor = tensor.unsqueeze(0)
 
-    return [tt.ToPILImage()(t.clamp(0, 1).float()) for t in tensor]
+    tensor = tensor if isinstance(tensor, list) else [tensor]
+    output = []
+    for t in tensor:
+        if t.ndim == 4:
+            t = t.squeeze(0)
+        output.append(tt.ToPILImage()(t.clamp(0, 1).float()))
+
+    return output
+
+def ImageToTensor(image):
+    from torchvision.transforms import v2 as tt
+    #return tt.ToTensor()(image)
+    return tt.Compose([
+        tt.ToImage(),
+        tt.ToDtype(torch.float32, scale=True)
+    ])(image)

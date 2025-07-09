@@ -1,8 +1,8 @@
 import logging
+logger = logging.getLogger('mellon')
 import asyncio
 from functools import partial
 from importlib import import_module
-logger = logging.getLogger('mellon')
 from aiohttp import web, WSMsgType
 from aiohttp_cors import setup as cors_setup, ResourceOptions
 import json

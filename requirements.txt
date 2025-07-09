@@ -8,3 +8,4 @@ safetensors
 protobuf
 sentencepiece
 einops
+spandrel

@@ -339,7 +339,7 @@ class SD3Sampler(NodeBase):
 
         if cfg_cutoff:
             sampling_pipeline._cfg_cutoff_step = cfg_step
-            sampling_config['callback_on_step_end_tensor_inputs'] = ["latents", "prompt_embeds"]
+            sampling_config['callback_on_step_end_tensor_inputs'] = ["prompt_embeds", "pooled_prompt_embeds"]
 
         del positive, negative, pipeline, embeds
     
