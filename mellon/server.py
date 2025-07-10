@@ -16,6 +16,7 @@ import hashlib
 from mellon.config import CONFIG
 from modules import MODULE_MAP
 from utils.huggingface import get_local_models, delete_model, search_hub, download_hub_model
+from utils.torch_utils import reset_memory_stats, get_memory_stats
 
 class WebServer:
     def __init__(
@@ -494,6 +495,8 @@ class WebServer:
                     else:
                         args[p] = params[p].get('value')
                             
+                reset_memory_stats()
+                
                 # import the custom module
                 work_module = import_module(f"{module}.main")
                 work_action = getattr(work_module, action)
@@ -507,7 +510,7 @@ class WebServer:
 
                 start_time = time.time()
 
-                # if the node is not in the cache, initialize it 
+                # if the node is not in the cache, initialize it
                 if id not in self.node_cache:
                     self.node_cache[id] = work_action(id)
 
@@ -525,11 +528,20 @@ class WebServer:
                 self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
                 self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
 
+                memory_stats = get_memory_stats()
+                if memory_stats:
+                    self.node_cache[id]._memory_usage['last'] = memory_stats['peak']
+                    self.node_cache[id]._memory_usage['min'] = min(self.node_cache[id]._memory_usage['min'], memory_stats['peak']) if self.node_cache[id]._memory_usage['min'] is not None else memory_stats['peak']
+                    self.node_cache[id]._memory_usage['max'] = max(self.node_cache[id]._memory_usage['max'], memory_stats['peak']) if self.node_cache[id]._memory_usage['max'] is not None else memory_stats['peak']
+
                 # the node has completed
                 self.queue_message({
                     "type": "executed",
                     "node": id,
-                    "executionTime": self.node_cache[id]._execution_time
+                    "name": f"{module}.{action}",
+                    "hasChanged": self.node_cache[id]._has_changed,
+                    "executionTime": self.node_cache[id]._execution_time,
+                    "memoryUsage": self.node_cache[id]._memory_usage
                 }, sid)
 
                 for ui_key, data_key in ui_fields.items():

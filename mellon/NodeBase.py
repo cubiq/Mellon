@@ -85,7 +85,9 @@ class NodeBase:
         self.output = get_module_output(self.module_name, self.class_name)
 
         self._sid = None
+        self._has_changed = False
         self._execution_time = { 'last': None, 'min': None, 'max': None }
+        self._memory_usage = { 'last': None, 'min': None, 'max': None }
         self._mm_models = []
         self._interrupt = False
 
@@ -142,8 +144,11 @@ class NodeBase:
                 # we pass the current value and the dict of all the values for cross parameter validation
                 params[key] = self.default_params[key]['postProcess'](params[key], params)
         
+        self._has_changed = False # flag to know if the node has changed since the last execution
+
         # if any of the values has changed or self.output is empty, we need to execute the node
         if (not deep_equal(self.params, params)) or any(v is None for v in self.output.values()):
+            self._has_changed = True
             self.params = params
             self.output = {k: None for k in self.output}
             del params

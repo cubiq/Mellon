@@ -9,3 +9,4 @@ protobuf
 sentencepiece
 einops
 spandrel
+kornia

@@ -7,6 +7,7 @@ def device_list():
         for i in range(torch.cuda.device_count()):
             total_memory = torch.cuda.get_device_properties(i).total_memory
             devices[f'cuda:{i}'] = {
+                'arch': 'cuda',
                 'name': f'{torch.cuda.get_device_name(i)} {total_memory / 1024 ** 3:.2f}GB ({i})',
                 'label': [f'cuda:{i}'],
                 'total_memory': total_memory,
@@ -16,6 +17,7 @@ def device_list():
     if torch.mps.is_available():
         for i in range(torch.mps.device_count()):
             devices[f'mps:{i}'] = {
+                'arch': 'mps',
                 'name': f'MPS ({i})',
                 'label': [f'mps:{i}'],
                 'total_memory': 0,
@@ -25,6 +27,7 @@ def device_list():
     if torch.cpu.is_available():
         for i in range(torch.cpu.device_count()):
             devices[f'cpu:{i}'] = {
+                'arch': 'cpu',
                 'name': f'CPU ({i})',
                 'label': [f'cpu:{i}'],
                 'total_memory': 0,
@@ -73,3 +76,20 @@ def ImageToTensor(image):
         tt.ToImage(),
         tt.ToDtype(torch.float32, scale=True)
     ])(image)
+
+def get_memory_stats():
+    if not torch.cuda.is_available():
+        return {}
+    
+    stats = torch.cuda.memory_stats()
+
+    return {
+        'current': stats['allocated_bytes.all.current'],
+        'peak': stats['allocated_bytes.all.peak'],
+        'allocated': stats['allocated_bytes.all.allocated'],
+        'freed': stats['allocated_bytes.all.freed'],
+    }
+
+def reset_memory_stats():
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
