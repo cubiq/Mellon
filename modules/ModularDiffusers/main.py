@@ -9,7 +9,6 @@ from mellon.NodeBase import NodeBase, deep_equal
 from utils.torch_utils import str_to_dtype
 
 logger = logging.getLogger("mellon")
-logger.setLevel(logging.DEBUG)
 
 
 def node_get_component_id(node_id=None, manager=None, name=None):
