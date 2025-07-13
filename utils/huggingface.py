@@ -50,12 +50,18 @@ def get_local_models():
 
     return local_models
 
-def get_local_model_ids(id: Optional[str] = None, class_name: Optional[str] = None):
+def get_local_model_ids(id: Optional[str] = None, class_name: Optional[str] | bool = None):
     local_models = get_local_models()
     if id:
         local_models = [model for model in local_models if id.lower() in model['id'].lower()]
-    if class_name:
-        local_models = [model for model in local_models if class_name in model['class_names']]
+    if class_name is not None:
+        if class_name == True: # all models with class names
+            local_models = [model for model in local_models if model['class_names']]
+        elif class_name == False: # all models without class names
+            local_models = [model for model in local_models if len(model['class_names']) == 0]
+        else: # specific class name
+            local_models = [model for model in local_models if class_name in model['class_names']]
+
     return [model['id'] for model in local_models]
 
 def delete_model(*revisions: str):

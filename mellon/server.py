@@ -39,6 +39,10 @@ class WebServer:
         self.ws_sessions = {}
 
         self.node_cache = {}
+
+        self.queued_tasks = {}
+        self.current_task = {}
+        
         self.main_queue = asyncio.Queue()
         self.background_queue = asyncio.Queue()
 
@@ -75,6 +79,8 @@ class WebServer:
             web.post('/file', self.filePost),
             web.get('/preview', self.preview),
             web.post('/graph', self.graph),
+            web.get('/queue', self.get_queue),
+            web.delete('/queue/{task_id}', self.delete_task),
             web.get('/hf_cache', self.hf_cache),
             web.delete('/hf_cache/{hash}', self.hf_cache_delete),
             web.get('/hf_hub', self.hf_hub),
@@ -105,40 +111,144 @@ class WebServer:
         await self.site.start()
     
     async def cleanup(self):
-        # Close all websocket sessions
-        for ws in list(self.ws_sessions.values()):
-            try:
-                await ws.close()
-            except Exception:
-                pass
-        self.ws_sessions.clear()
+        # Stop the web server from accepting new connections.
+        if self.site:
+            await self.site.stop()
 
-        # Cancel worker tasks
+        # Close all active websocket connections.
+        if self.ws_sessions:
+            close_coroutines = [ws.close() for ws in self.ws_sessions.values()]
+            await asyncio.gather(*close_coroutines, return_exceptions=True)
+
+        # Cleanup the runner.
+        if self.runner:
+            await self.runner.cleanup()
+
+        # Cancel and clean up the background workers.
         if self.main_worker_task:
             self.main_worker_task.cancel()
         if self.background_worker_task:
             self.background_worker_task.cancel()
-
-        # Wait for the workers to finish
+        
+        # Wait for the workers to finish.
         tasks_to_wait = [task for task in [self.main_worker_task, self.background_worker_task] if task]
         if tasks_to_wait:
             await asyncio.gather(*tasks_to_wait, return_exceptions=True)
-
-        # Clean up the runner and site
-        if self.site:
-            await self.site.stop()
-        if self.runner:
-            await self.runner.cleanup()
 
     """
     ╭───────────────╮
           Queue    
     ╰───────────────╯
     """
+    def _get_queue(self):
+        #task_list_sorted = {k: v for k, v in sorted(self.queued_tasks.items(), key=lambda x: x[1]['queued_at'], reverse=True)}
+        # filter out keys that are not needed for the client
+        queued_tasks = {
+            k: {
+                'name': v['name'],
+                'sid': v['sid'],
+                'queued_at': v['queued_at'],
+                'task_id': k,
+            }
+            for k, v in self.queued_tasks.items()
+        }
+
+        current_task = None
+        if self.current_task:
+            current_task = {
+                "task_id": self.current_task["task_id"],
+                "name": self.current_task["name"],
+                "sid": self.current_task["sid"],
+                "started_at": self.current_task["started_at"],
+                "progress": self.current_task["progress"],
+            }
         
+        return queued_tasks, current_task
+
+    async def queue_task(self, task, args, future, sid, name=None):
+        task_id = nanoid.generate(size=12)
+        task_name = name or f'Unnamed task ({task.__name__})'
+
+        self.queued_tasks[task_id] = {
+            'task': task,
+            'args': args,
+            'future': future,
+            "sid": sid,
+            "queued_at": time.time(),
+            "name": task_name,
+        }
+        await self.main_queue.put((task, args, future, task_id))
+
+        task_list, current_task = self._get_queue()
+
+        self.queue_message({
+            "type": "task_queued",
+            "task_id": task_id,
+            "sid": sid,
+            "queued": task_list,
+            "current": current_task,
+        })
+        
+    async def get_queue(self, request):
+        """
+        HTTP endpoint to return the tasks queue and the current task.
+        """
+        task_list, current_task = self._get_queue()
+        return web.json_response({
+            "queued": task_list,
+            "current": current_task,
+        })
+    
+    async def delete_task(self, request):
+        """
+        HTTP endpoint to delete a task from the queue.
+        """
+        task_id = request.match_info.get('task_id')
+        if task_id in self.queued_tasks:
+            task = self.queued_tasks.pop(task_id)
+            logger.info(f"Task {task_id} {task['name']} deleted from queue.")
+            task_list, current_task = self._get_queue()
+            self.queue_message({
+                "type": "task_cancelled",
+                "task_id": task_id,
+                "queued": task_list,
+                "current": current_task,
+            })
+            return web.json_response({"error": False, "task_id": task_id, "queued": task_list, "current": current_task})
+        elif self.current_task and self.current_task["task_id"] == task_id:
+            return web.json_response({"error": True, "message": f"Task is already running and cannot be cancelled.", "task_id": task_id}, status=400)
+        
+        return web.json_response({"error": True, "message": f"Task not found in queue.", "task_id": task_id}, status=404)
+    
     async def _main_worker(self):
         while True:
-            task, args, future = await self.main_queue.get()
+            task, args, future, task_id = await self.main_queue.get()
+
+            if task_id not in self.queued_tasks:
+                logger.debug(f"Task {task_id} was cancelled, skipping.")
+                if future:
+                    future.set_exception(asyncio.CancelledError(f"Task {task_id} was cancelled"))
+                self.main_queue.task_done()
+                continue
+
+            current_task = self.queued_tasks.pop(task_id)
+
+            self.current_task = {
+                "task_id": task_id,
+                "task": task,
+                "name": current_task["name"],
+                "sid": current_task["sid"],
+                "started_at": time.time(),
+                "progress": 0,
+            }
+            task_list, current_task = self._get_queue()
+            self.queue_message({
+                "type": "task_started",
+                "task_id": task_id,
+                "queued": task_list,
+                "current": current_task,
+            })
+            
             try:
                 if isinstance(args, tuple):
                     result = await self.loop.run_in_executor(None, partial(task, *args))
@@ -150,12 +260,23 @@ class WebServer:
                 if future:
                     future.set_result(result)
             except Exception as e:
-                logger.error(f"Error processing main task: {e}")
+                #logger.error(f"Error processing main task: {e}")
                 logger.error(f"Error occurred in {traceback.format_exc()}")
                 if future:
                     future.set_exception(e)
             finally:
+                if self.current_task:
+                    task_list, _ = self._get_queue()
+                    self.current_task = None
+                    self.queue_message({
+                        "type": "task_completed",
+                        "task_id": task_id,
+                        "completed_at": time.time(),
+                        "queued": task_list,
+                        "current": None,
+                    })
                 self.main_queue.task_done()
+
 
     async def _background_worker(self):
         while True:
@@ -175,9 +296,9 @@ class WebServer:
 
 
     """
-    ╭───────────────╮
-       HTTP Routes   
-    ╰───────────────╯
+    ╭─────────────────────╮
+       Basic HTTP Routes   
+    ╰─────────────────────╯
     """
 
     async def index(self, _):
@@ -190,6 +311,28 @@ class WebServer:
     async def favicon(self, _):
         return web.FileResponse('web/favicon.ico')
 
+    async def user_assets(self, request):
+        module = request.match_info.get('module')
+        file = request.match_info.get('file')
+        fileName = f"custom/{module}/web/{file}"
+        
+        if not Path(fileName).exists():
+            return web.HTTPNotFound(text='File not found')
+        
+        response = web.FileResponse(fileName)
+        #response.headers["Content-Type"] = "application/javascript"
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response
+
+
+    """
+    ╭────────────────╮
+       Nodes Routes
+    ╰────────────────╯
+    """
     async def nodes(self, request):
         id = request.match_info.get('id', '').strip('/')
         modules = self.modules
@@ -229,6 +372,13 @@ class WebServer:
             'instance': self.instance,
             'nodes': output
         })
+
+
+    """
+    ╭─────────────────────╮
+       Node Cache Routes
+    ╰─────────────────────╯
+    """
 
     async def cache(self, request):
         node = request.match_info.get('node')
@@ -295,6 +445,12 @@ class WebServer:
                 del self.node_cache[node]
         
         return web.json_response({"error": False, "nodes": nodes})
+
+    """
+    ╭───────────────────╮
+       File Management
+    ╰───────────────────╯
+    """
 
     async def listdir(self, request):
         req_path = request.query.get('path', self.work_dir)
@@ -441,14 +597,24 @@ class WebServer:
             }
         )
 
-    # Execute the node graph
+    """
+    ╭────────────────────────╮
+       Main graph execution
+    ╰────────────────────────╯
+    """
+
     async def graph(self, request):
         graph = await request.json()
-        await self.main_queue.put((self.execute_graph, (graph,), None))
+        sid = graph.get("sid")
+        #if not sid:
+        #    return web.json_response({"error": True, "message": "Missing session id"}, status=400)
+        
+        task_id = await self.queue_task(self.execute_graph, (graph,), None, sid, name=f"Graph execution")
         return web.json_response({
             "error": False,
             "message": "Graph queued for processing",
-            "sid": graph["sid"]
+            "sid": sid,
+            "task_id": task_id,
         })
     
     def execute_graph(self, graph):
@@ -457,6 +623,10 @@ class WebServer:
         paths = graph['paths']
 
         graph_execution_time = time.time()
+
+        node_count = sum(len(path) for path in paths)
+        task_progress_step = 100 / node_count
+        task_progress = 0
 
         for path in paths:
             for id in path:
@@ -576,6 +746,16 @@ class WebServer:
 
                     if message:
                         self.queue_message(message, sid)
+                
+                # broadcast the task progress
+                if self.current_task:
+                    task_progress += task_progress_step
+                    self.current_task['progress'] = int(task_progress)
+                    self.queue_message({
+                        "type": "task_progress",
+                        "task_id": self.current_task["task_id"],
+                        "progress": self.current_task['progress'],
+                    })
 
         # the graph has completed
         self.queue_message({
@@ -583,6 +763,13 @@ class WebServer:
             "sid": sid,
             "executionTime": time.time() - graph_execution_time,
         }, sid)
+
+
+    """
+    ╭────────────────╮
+       Hugging Face
+    ╰────────────────╯
+    """
 
     async def hf_cache(self, request):
         return web.json_response(get_local_models())
@@ -595,6 +782,7 @@ class WebServer:
         result = delete_model(*hashes)
         return web.json_response({"error": not result})
 
+    # TODO: not yet implemented
     async def hf_hub(self, request):
         query = request.query.get('q', '')
 
@@ -628,21 +816,6 @@ class WebServer:
             logger.error(f"Error in hf_download endpoint: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
-    async def user_assets(self, request):
-        module = request.match_info.get('module')
-        file = request.match_info.get('file')
-        fileName = f"custom/{module}/web/{file}"
-        
-        if not Path(fileName).exists():
-            return web.HTTPNotFound(text='File not found')
-        
-        response = web.FileResponse(fileName)
-        #response.headers["Content-Type"] = "application/javascript"
-        response.headers["Cache-Control"] = "no-cache"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-        
-        return response
 
     """
     ╭───────────────╮
@@ -714,10 +887,11 @@ class WebServer:
                 pass
     
     def queue_message(self, message: dict | bytes, sid: list[str] | str = None, exclude: list[str] | str = None):
-        asyncio.run_coroutine_threadsafe(
-            self.background_queue.put((self.broadcast, (message, sid, exclude))),
-            self.loop
-        )
+        if self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.background_queue.put((self.broadcast, (message, sid, exclude))),
+                self.loop
+            )
 
 
 def to_base64(type, value):
