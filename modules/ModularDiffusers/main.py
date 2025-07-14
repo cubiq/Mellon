@@ -6,7 +6,8 @@ from diffusers.modular_pipelines import SequentialPipelineBlocks
 from diffusers.modular_pipelines.stable_diffusion_xl import ALL_BLOCKS
 
 from mellon.NodeBase import NodeBase, deep_equal
-from utils.torch_utils import str_to_dtype
+from utils.huggingface import get_local_model_ids
+from utils.torch_utils import DEFAULT_DEVICE, str_to_dtype
 
 logger = logging.getLogger("mellon")
 
@@ -48,7 +49,7 @@ components.enable_auto_cpu_offload(device="cuda")
 
 class AutoModelLoader(NodeBase):
     label = "Load Model"
-    category = "Modular Diffusers"
+    category = "loader"
     resizable = True
     params = {
         "name": {
@@ -112,6 +113,63 @@ class AutoModelLoader(NodeBase):
 
 
 class ModelsLoader(NodeBase):
+    label = "Load Models"
+    category = "loader"
+    resizable = True
+    params = {
+        "repo_id": {
+            "label": "Repository ID",
+            "display": "autocomplete",
+            "type": "string",
+            "options": get_local_model_ids(
+                class_name="StableDiffusionXLModularPipeline"
+            ),
+            "fieldOptions": {"noValidation": True},
+        },
+        "dtype": {
+            "label": "dtype",
+            "options": ["float32", "float16", "bfloat16"],
+            "default": "float16",
+            "postProcess": str_to_dtype,
+        },
+        "device": {
+            "label": "Device",
+            "type": "string",
+            "default": DEFAULT_DEVICE,
+            "options": [DEFAULT_DEVICE, "cpu"],
+        },
+        "unet": {
+            "label": "Unet",
+            "display": "input",
+            "type": "diffusers_auto_model",
+        },
+        "vae": {
+            "label": "VAE",
+            "display": "input",
+            "type": "diffusers_auto_model",
+        },
+        "text_encoders": {
+            "label": "Text Encoders",
+            "display": "output",
+            "type": "text_encoders",
+        },
+        "unet_out": {
+            "label": "UNet",
+            "display": "output",
+            "type": "diffusers_auto_model",
+        },
+        "vae_out": {
+            "label": "VAE",
+            "display": "output",
+            "type": "diffusers_auto_model",
+        },
+        "scheduler": {
+            "label": "Scheduler",
+            "display": "output",
+            "type": "scheduler",
+        },
+    }
+
     def __init__(self, node_id=None):
         super().__init__(node_id)
         self.loader = None
@@ -217,7 +275,7 @@ class ModelsLoader(NodeBase):
 
 class EncodePrompt(NodeBase):
     label = "Encode Prompt"
-    category = "Modular Diffusers"
+    category = "embedding"
     resizable = True
     params = {
         "text_encoders": {
@@ -283,7 +341,7 @@ class EncodePrompt(NodeBase):
 
 class Denoise(NodeBase):
     label = "Denoise"
-    category = "Modular Diffusers"
+    category = "sampler"
     resizable = True
     params = {
         "unet": {
@@ -388,7 +446,7 @@ class Denoise(NodeBase):
 
 class DecodeLatents(NodeBase):
     label = "Decode Latents"
-    category = "Modular Diffusers"
+    category = "sampler"
     resizable = True
     params = {
         "vae": {
