@@ -7,7 +7,7 @@ from diffusers.modular_pipelines.stable_diffusion_xl import ALL_BLOCKS
 
 from mellon.NodeBase import NodeBase, deep_equal
 from utils.huggingface import get_local_model_ids
-from utils.torch_utils import DEFAULT_DEVICE, str_to_dtype
+from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 logger = logging.getLogger("mellon")
 
@@ -136,7 +136,7 @@ class ModelsLoader(NodeBase):
             "label": "Device",
             "type": "string",
             "default": DEFAULT_DEVICE,
-            "options": [DEFAULT_DEVICE, "cpu"],
+            "options": DEVICE_LIST,
         },
         "unet": {
             "label": "Unet",
