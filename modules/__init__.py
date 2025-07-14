@@ -7,6 +7,11 @@ from types import ModuleType
 logger = logging.getLogger('mellon')
 logger.debug("Loading modules...")
 
+# preload common functions
+from utils.huggingface import local_files_only, get_local_model_ids
+from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE
+
+
 MODULE_MAP = {}
 def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
     """
@@ -32,19 +37,46 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
         elif isinstance(node, ast.Tuple):
             return tuple(safe_eval_ast_node_recursive(item, module_obj) for item in node.elts)
         
-        # --- KEY CHANGE ---
         # If it's a name (e.g., a variable or function name), try to resolve it.
         elif isinstance(node, ast.Name):
             try:
-                # Attempt to get the attribute (the function/variable) from the live module
+                # First, try to get the attribute from the live module
                 return getattr(module_obj, node.id)
             except AttributeError:
-                # If it fails, the name is not defined at the module level.
-                # Fall back to returning the name as a string.
-                logger.warning(f"Could not resolve name '{node.id}' in module '{module_obj.__name__}'. Storing as string.")
+                # If not found in module, try to get it from the global scope
+                try:
+                    return globals()[node.id]
+                except KeyError:
+                    # If it fails, the name is not defined at the module level or global scope.
+                    # Fall back to returning the name as a string.
+                    logger.warning(f"Could not resolve name '{node.id}' in module '{module_obj.__name__}'. Storing as string.")
+                    return ast.unparse(node)
+
+        # If it's a function call, evaluate the function and its arguments
+        elif isinstance(node, ast.Call):
+            # 1. Resolve the callable (e.g., the function object)
+            func = safe_eval_ast_node_recursive(node.func, module_obj)
+            
+            # 2. Check if it's actually a callable function
+            if not callable(func):
+                logger.warning(f"Resolved name '{getattr(node.func, 'id', 'unknown')}' is not callable. Storing as string.")
                 return ast.unparse(node)
-        
-        # For other complex expressions (like function calls `my_func()`), convert to string
+
+            # 3. Evaluate positional and keyword arguments
+            args = [safe_eval_ast_node_recursive(arg, module_obj) for arg in node.args]
+            kwargs = {
+                kw.arg: safe_eval_ast_node_recursive(kw.value, module_obj)
+                for kw in node.keywords
+            }
+            
+            # 4. Execute the function and return its result
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error executing function '{getattr(node.func, 'id', 'unknown')}' in module '{module_obj.__name__}': {e}", exc_info=True)
+                return ast.unparse(node) # Fallback to string on error
+
+        # fallback for other complex expressions
         else:
             return ast.unparse(node)
 
@@ -79,8 +111,7 @@ def parse_module_file(module_filepath: str, module_obj: ModuleType, ignore_class
     """
     Parses a python file using AST and extracts a map of all classes that inherit from NodeBase.
     """
-    if ignore_classes is None:
-        ignore_classes = set()
+    ignore_classes = ignore_classes or set()
 
     try:
         with open(module_filepath, "r", encoding="utf-8") as f:

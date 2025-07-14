@@ -1,6 +1,8 @@
 from mellon.config import CONFIG, ColorCodes
 import logging
 import asyncio
+import signal
+
 logger = logging.getLogger('mellon')
 
 from modules import MODULE_MAP
@@ -13,26 +15,32 @@ logger.info(f"""{ColorCodes.BLUE}
 ╰──────────────────────╯
 Speak Friend and Enter: {CONFIG.server['scheme']}://{CONFIG.server['ip']}:{CONFIG.server['port']}""")
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-try:
-    loop.run_until_complete(server.run())
-    loop.run_forever()
-except KeyboardInterrupt:
-    print('')
-    logger.info(f"Received keyboard interrupt. Exiting...")
-except Exception as e:
-    logger.error(e)
-    raise e
-finally:
-    loop.run_until_complete(server.cleanup())
-    tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-    if tasks:
-        logger.debug(f"Cancelling {len(tasks)} outstanding tasks. This might take a few seconds...")
-        for task in tasks:
-            # give some info about the task
-            logger.debug(f"Task {task} is {task.get_name()}")
-            task.cancel()
-        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-    loop.close()
-    logger.info(f"{ColorCodes.BLUE}Namárië!")
+async def main():
+    await server.run()
+    try:
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        logger.info("Shutdown initiated. Waiting for server to cleanup...")
+    finally:
+        logger.info("If there are any outstanding tasks, this might take a few seconds.")
+        await server.cleanup()
+
+
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    main_task = loop.create_task(main())
+
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, main_task.cancel)
+    except NotImplementedError:
+        # for windows
+        pass
+
+    try:
+        loop.run_until_complete(main_task)
+    finally:
+        loop.close()
+        logger.info(f"{ColorCodes.BLUE}Namárië!")

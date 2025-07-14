@@ -43,7 +43,6 @@ class UnsharpMask(NodeBase):
         amount = kwargs.get("amount", 0.3)
         amount = radius[0] / 3 * amount
         amount = (amount, amount)
-        print(radius, amount)
 
         device = kwargs.get("device")
         

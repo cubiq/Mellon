@@ -3,7 +3,7 @@
 Mellon is a client/server application to easily interface with ML tools with a focus on [Diffusers](https://github.com/huggingface/diffusers).
 
 > [!CAUTION]
-> This is just a development environment and it is not ready for production. DO NOT USE IT unless you know what you are doing.
+> Mellon is in an early development stage and it is not ready for production. DO NOT USE IT unless you know what you are doing.
 
 
 ## Installation
@@ -27,5 +27,7 @@ Finally install the dependencies.
 ```bash
 pip install -r requirements.txt
 ```
+
+Run the application with `python main.py` or --on Linux-- with the script `./run.sh`.
 
 Mellon has been tested on python **3.12**.
