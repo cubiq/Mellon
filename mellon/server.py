@@ -631,7 +631,7 @@ class WebServer:
         graph_execution_time = time.time()
 
         node_count = sum(len(path) for path in paths)
-        task_progress_step = 100 / node_count
+        task_progress_step = 100 / node_count if node_count > 0 else 100
         task_progress = 0
 
         for path in paths:
