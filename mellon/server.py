@@ -38,6 +38,7 @@ class WebServer:
         self.modules = modules
         self.ws_sessions = {}
 
+        self.interrupt_flag = False
         self.node_cache = {}
 
         self.queued_tasks = {}
@@ -81,6 +82,7 @@ class WebServer:
             web.post('/graph', self.graph),
             web.get('/queue', self.get_queue),
             web.delete('/queue/{task_id}', self.delete_task),
+            web.get('/stop', self.stop_execution),
             web.get('/hf_cache', self.hf_cache),
             web.delete('/hf_cache/{hash}', self.hf_cache_delete),
             web.get('/hf_hub', self.hf_hub),
@@ -189,7 +191,7 @@ class WebServer:
             "current": current_task,
         })
         
-    async def get_queue(self, request):
+    async def get_queue(self, _):
         """
         HTTP endpoint to return the tasks queue and the current task.
         """
@@ -276,6 +278,7 @@ class WebServer:
                         "current": None,
                     })
                 self.main_queue.task_done()
+                self.interrupt_flag = False
 
 
     async def _background_worker(self):
@@ -440,9 +443,12 @@ class WebServer:
         if isinstance(nodes, str):
             nodes = list(self.node_cache.keys()) if nodes == '*' else [nodes]
 
+        # this might take a while because it could be freeing up VRAM
         for node in nodes:
             if node in self.node_cache:
                 del self.node_cache[node]
+        
+        logger.debug(f"Removed {len(nodes)} nodes from cache.")
         
         return web.json_response({"error": False, "nodes": nodes})
 
@@ -630,6 +636,15 @@ class WebServer:
 
         for path in paths:
             for id in path:
+                if self.interrupt_flag:
+                    self.interrupt_flag = False
+                    self.queue_message({
+                        "type": "graph_stopped",
+                        "sid": sid,
+                        "message": "Execution interrupted by the user."
+                    }, sid)
+                    return
+
                 module = nodes[id]['module']
                 action = nodes[id]['action']
                 params = nodes[id]['params']
@@ -763,6 +778,22 @@ class WebServer:
             "sid": sid,
             "executionTime": time.time() - graph_execution_time,
         }, sid)
+
+    async def stop_execution(self, _):
+        # check if there is a current task or any queued task
+        if not self.current_task and not self.queued_tasks:
+            return web.json_response({"error": True, "message": "Nothing to do. No task is currently running or queued."})
+
+        if self.interrupt_flag:
+            return web.json_response({"error": True, "message": "Execution is already set for interruption."})
+
+        self.interrupt_flag = True
+
+        # set the interrupt flag for all the nodes in the cache
+        for node in self.node_cache:
+            self.node_cache[node]._interrupt = True
+        
+        return web.json_response({"error": False, "message": "Execution set for interruption."})
 
 
     """
