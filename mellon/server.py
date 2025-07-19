@@ -396,18 +396,17 @@ class WebServer:
         key = data.get('fieldKey', None)
         queue = data.get('queue', False)
 
-        if node in self.node_cache:
-            work_action = self.node_cache[node]
-        else:
+        if node not in self.node_cache:
             module = data.get('module')
             action = data.get('action')
             work_module = import_module(f"{module}.main")
             work_action = getattr(work_module, action)
-            work_action = work_action()
-            work_action.node_id = node
-            work_action._sid = sid
+            work_action = work_action(node_id=node)
+            self.node_cache[node] = work_action
+        
+        self.node_cache[node]._sid = sid # always update the sid as it may change over time
 
-        fn = getattr(work_action, fn)
+        fn = getattr(self.node_cache[node], fn)
         ref = {
             "node": node,
             "key": key,
@@ -772,9 +771,7 @@ class WebServer:
                     
         reset_memory_stats()
         
-        # import the custom module
-        work_module = import_module(f"{module}.main")
-        work_action = getattr(work_module, action)
+        start_time = time.time()
 
         # tell the client that the node is running
         self.queue_message({
@@ -783,7 +780,9 @@ class WebServer:
             "progress": -1, # -1 sets the progress to indeterminate
         }, sid)
 
-        start_time = time.time()
+        # import the custom module
+        work_module = import_module(f"{module}.main")
+        work_action = getattr(work_module, action)
 
         # if the node is not in the cache, initialize it
         if id not in self.node_cache:
@@ -792,10 +791,10 @@ class WebServer:
         if not callable(self.node_cache[id]):
             raise TypeError(f"The class `{module}.{action}` is not callable. Make sure the class has a `__call__` method or extends `NodeBase`.")
 
-        # set the session id, it can be used to send messages directly from the node back to the client
+        # set the session id, it can be used to send messages from the node back to the client
         self.node_cache[id]._sid = sid
 
-        # execute the node
+        # *** execute the node ***
         self.node_cache[id](**args)
 
         execution_time = time.time() - start_time

@@ -257,6 +257,27 @@ class NodeBase:
             "params": params,
         }, self._sid)
 
+    def set_field_visibility(self, fields: dict):
+        if not self._sid or not self.node_id:
+            return
+        
+        server.queue_message({
+            "type": "set_field_visibility",
+            "node": self.node_id,
+            "fields": fields,
+        }, self._sid)
+    
+    def set_field_value(self, field: dict):
+        if not self._sid or not self.node_id:
+            return
+        
+        server.queue_message({
+            "type": "set_field_value",
+            "node": self.node_id,
+            "fields": field,
+        }, self._sid)
+
+
     """
     ╭────────────────╮
       Memory Manager

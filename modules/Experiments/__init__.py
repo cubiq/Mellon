@@ -25,7 +25,7 @@ MODULE_MAP = {
                 "default": "bfloat16",
                 "options": ['auto', 'float32', 'float16', 'bfloat16'],
             },
-            "load_t5": { "label": "Load T5 Text Encoder", "type": "boolean", "default": True },
+            "load_t5": { "label": "Load T5 Encoder", "type": "boolean", "default": True },
             "text_encoders": { "label": "Text Encoders", "display": "input", "type": "SD3TextEncoders", "onChange": { True: ['load_t5'], False: []} },
             "transformer": { "label": "Transformer", "display": "input", "type": "SD3Transformer2DModel" },
         }
@@ -55,7 +55,7 @@ MODULE_MAP = {
                 'default': 'bfloat16',
                 'options': ['auto', 'float32', 'float16', 'bfloat16'],
             },
-            'load_t5': { 'label': 'Load T5 Encoder', 'type': 'boolean', 'default': True }
+            'load_t5': { 'label': 'Load T5 Encoder', 'type': 'boolean', 'default': True },
         },
     },
 }

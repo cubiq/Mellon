@@ -16,11 +16,12 @@ class SD3PipelineLoader(NodeBase):
         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
         transformer = kwargs.get('transformer', None)
         text_encoders = kwargs.get('text_encoders', None)
+        load_t5 = kwargs.get('load_t5', True)
         config = {}
         
         if transformer:
             config['transformer'] = transformer
-        if not kwargs['load_t5']:
+        if not load_t5:
             config['text_encoder_3'] = None
             config['tokenizer_3'] = None
 
@@ -44,10 +45,13 @@ class SD3PipelineLoader(NodeBase):
             pipeline.vae = upcast_vae(pipeline.vae)
 
         self.mm_add(pipeline.transformer, priority=3)
-        self.mm_add(pipeline.text_encoder, priority=1)
-        self.mm_add(pipeline.text_encoder_2, priority=1)
-        self.mm_add(pipeline.text_encoder_3, priority=1) if kwargs['load_t5'] else None
         self.mm_add(pipeline.vae, priority=2)
+
+        if not text_encoders:
+            self.mm_add(pipeline.text_encoder, priority=1)
+            self.mm_add(pipeline.text_encoder_2, priority=1)
+            if load_t5:
+                self.mm_add(pipeline.text_encoder_3, priority=1)
 
         return { "pipeline": pipeline }
 
