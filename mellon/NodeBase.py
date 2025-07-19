@@ -90,54 +90,59 @@ class NodeBase:
         self._memory_usage = { 'last': None, 'min': None, 'max': None }
         self._mm_models = []
         self._interrupt = False
+        self._skip_params_check = MODULE_MAP[self.module_name][self.class_name].get('skipParamsCheck', False)
 
     def __call__(self, **kwargs):
         self._interrupt = False
         
-        # filter out params that are not in the default_params
-        params = { key: kwargs[key] for key in kwargs if key in self.default_params }
+        if self._skip_params_check:
+            params = kwargs
+        else:
+            # filter out params that are not in the default_params
+            params = { key: kwargs[key] for key in kwargs if key in self.default_params }
 
         # if node_id is None, the class was called directly, so we execute it without further processing
         if self.node_id is None:
             return getattr(self, self.CALLBACK)(**params)
         
         # params normalization and validation
-        for key, value in params.items():
-            if value is None:
-                value = self.default_params[key]['default'] if 'default' in self.default_params[key] else None
-                params[key] = value
-            
-            if 'type' in self.default_params[key]:
-                type = self.default_params[key]['type']
-                if isinstance(type, list):
-                    type = type[0]
+        if not self._skip_params_check:
+            for key, value in params.items():
+                if value is None:
+                    value = self.default_params[key]['default'] if 'default' in self.default_params[key] else None
+                    params[key] = value
+                
+                if 'type' in self.default_params[key]:
+                    type = self.default_params[key]['type']
+                    if isinstance(type, list):
+                        type = type[0]
 
-                if type.startswith('int'):
-                    params[key] = int(value or 0) if not isinstance(value, list) else [int(v) for v in value]
-                elif type.startswith('float'):
-                    params[key] = float(value or 0) if not isinstance(value, list) else [float(v) for v in value]
-                elif type.startswith('str') or type.startswith('text'):
-                    if isinstance(value, dict):
-                        params[key] = value
-                    elif isinstance(value, list):
-                        params[key] = [str(v) for v in value]
+                    if type.startswith('int'):
+                        params[key] = int(value or 0) if not isinstance(value, list) else [int(v) for v in value]
+                    elif type.startswith('float'):
+                        params[key] = float(value or 0) if not isinstance(value, list) else [float(v) for v in value]
+                    elif type.startswith('str') or type.startswith('text'):
+                        if isinstance(value, dict):
+                            params[key] = value
+                        elif isinstance(value, list):
+                            params[key] = [str(v) for v in value]
+                        else:
+                            params[key] = str(value or '')
+                    elif type.startswith('bool'):
+                        params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
+                
+                if 'options' in self.default_params[key] and not ('no_validation' in self.default_params[key] and self.default_params[key]['no_validation']):
+                    options = self.default_params[key]['options']
+                    value_list = [value] if not isinstance(value, list) else value
+                    if isinstance(options, list):
+                        if any(v not in options for v in value_list):
+                            raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
+                    elif isinstance(options, dict):
+                        if any(v not in options.keys() for v in value_list):
+                            raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
                     else:
-                        params[key] = str(value or '')
-                elif type.startswith('bool'):
-                    params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
+                        raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid options format for {key}: {options}")
             
-            if 'options' in self.default_params[key] and not ('no_validation' in self.default_params[key] and self.default_params[key]['no_validation']):
-                options = self.default_params[key]['options']
-                value_list = [value] if not isinstance(value, list) else value
-                if isinstance(options, list):
-                    if any(v not in options for v in value_list):
-                        raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
-                elif isinstance(options, dict):
-                    if any(v not in options.keys() for v in value_list):
-                        raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
-                else:
-                    raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid options format for {key}: {options}")
-        
         # post processing
         for key in self.default_params:
             if 'postProcess' in self.default_params[key]:
@@ -166,7 +171,7 @@ class NodeBase:
 
             if isinstance(output, dict):
                 # output and self.output keys must be the same
-                if set(output.keys()) != set(self.output.keys()):
+                if set(output.keys()) != set(self.output.keys()) and not self._skip_params_check:
                     raise ValueError(f"Module {self.module_name}.{self.class_name}: Output keys do not match: {output.keys()} != {self.output.keys()}")
 
                 self.output = output
@@ -210,7 +215,15 @@ class NodeBase:
         self.progress(progress)
         
         return callback_kwargs
+    
+    def trigger_output(self, output, value=None):
+        if not self.node_id or output not in self.output:
+            return
+        
+        if value is not None:
+            self.output[output] = value
 
+        server.trigger_node(self.node_id, output, self._sid)
 
     """
     ╭───────────╮
@@ -234,6 +247,15 @@ class NodeBase:
             "progress": progress,
         }, self._sid)
 
+    def send_node_definition(self, params):
+        if not self._sid or not self.node_id:
+            return
+
+        server.queue_message({
+            "type": "node_definition",
+            "node": self.node_id,
+            "params": params,
+        }, self._sid)
 
     """
     ╭────────────────╮

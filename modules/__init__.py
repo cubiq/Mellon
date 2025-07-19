@@ -90,6 +90,7 @@ def parse_node_class(node: ast.ClassDef, module_obj: ModuleType) -> Dict[str, An
         "category": None,
         "description": None,
         "resizable": None,
+        "skipParamsCheck": False,
         "style": {},
         "params": {},
     }
@@ -149,7 +150,6 @@ def parse_module_map(base_path: str) -> None:
             module_content = {}
             if hasattr(module_obj, "MODULE_MAP"):
                 module_content = module_obj.MODULE_MAP.copy()
-                logger.debug(f"Loaded {len(module_content)} classes from {module_name}")
 
             # Determine which files within the module to parse
             files_to_parse = getattr(module_obj, "MODULE_PARSE", ["main"])
@@ -165,7 +165,6 @@ def parse_module_map(base_path: str) -> None:
                     # Pass the file path and the live module object to the parser
                     parsed_content = parse_module_file(target_file, module_obj, ignore_classes)
                     if parsed_content:
-                        logger.debug(f"Parsed {len(parsed_content)} classes from '{target_file}'")
                         module_content.update(parsed_content)
                 else:
                     logger.warning(f"Could not find file '{file_stem}.py' in module '{module_name}'")
