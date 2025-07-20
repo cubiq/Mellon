@@ -15,13 +15,23 @@ class SD3PipelineLoader(NodeBase):
         dtype = str_to_dtype(kwargs['dtype'])
         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
         transformer = kwargs.get('transformer', None)
+        text_encoders = kwargs.get('text_encoders', None)
+        load_t5 = kwargs.get('load_t5', True)
         config = {}
         
         if transformer:
             config['transformer'] = transformer
-        if not kwargs['load_t5']:
+        if not load_t5:
             config['text_encoder_3'] = None
             config['tokenizer_3'] = None
+
+        if text_encoders:
+            config['text_encoder'] = text_encoders.text_encoder
+            config['text_encoder_2'] = text_encoders.text_encoder_2
+            config['text_encoder_3'] = text_encoders.text_encoder_3
+            config['tokenizer'] = text_encoders.tokenizer
+            config['tokenizer_2'] = text_encoders.tokenizer_2
+            config['tokenizer_3'] = text_encoders.tokenizer_3
 
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             model_id,
@@ -35,10 +45,13 @@ class SD3PipelineLoader(NodeBase):
             pipeline.vae = upcast_vae(pipeline.vae)
 
         self.mm_add(pipeline.transformer, priority=3)
-        self.mm_add(pipeline.text_encoder, priority=1)
-        self.mm_add(pipeline.text_encoder_2, priority=1)
-        self.mm_add(pipeline.text_encoder_3, priority=1) if kwargs['load_t5'] else None
         self.mm_add(pipeline.vae, priority=2)
+
+        if not text_encoders:
+            self.mm_add(pipeline.text_encoder, priority=1)
+            self.mm_add(pipeline.text_encoder_2, priority=1)
+            if load_t5:
+                self.mm_add(pipeline.text_encoder_3, priority=1)
 
         return { "pipeline": pipeline }
 
@@ -80,51 +93,51 @@ class SD3PipelineLoader(NodeBase):
 
 #         return { 'model': transformer_model }
 
-# class SD3TextEncodersLoader(NodeBase):
-#     def execute(self, **kwargs):
-#         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
-#         dtype = str_to_dtype(kwargs['dtype'])
-#         load_t5 = kwargs.get('load_t5', True)
+class SD3TextEncodersLoader(NodeBase):
+    def execute(self, **kwargs):
+        model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
+        dtype = str_to_dtype(kwargs['dtype'])
+        load_t5 = kwargs.get('load_t5', True)
 
-#         config = {
-#             "torch_dtype": dtype,
-#             "local_files_only": local_files_only(model_id),
-#             "token": HF_TOKEN,
-#         }
+        config = {
+            "torch_dtype": dtype,
+            "local_files_only": local_files_only(model_id),
+            "token": HF_TOKEN,
+        }
 
-#         text_encoder = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder", **config)
-#         tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
-#         text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **config)
-#         tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **config)
+        text_encoder = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder", **config)
+        tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
+        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **config)
+        tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **config)
 
-#         self.mm_add(text_encoder, priority=1)
-#         self.mm_add(text_encoder_2, priority=1)
+        self.mm_add(text_encoder, priority=1)
+        self.mm_add(text_encoder_2, priority=1)
 
-#         t5_encoder = None
-#         t5_tokenizer = None
+        t5_encoder = None
+        t5_tokenizer = None
 
-#         if load_t5:
-#             t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **config)
-#             t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **config)
-#             self.mm_add(t5_encoder, priority=0)
+        if load_t5:
+            t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **config)
+            t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **config)
+            self.mm_add(t5_encoder, priority=0)
         
-#         return {
-#             "encoders": {
-#                 "text_encoder": text_encoder,
-#                 "text_encoder_2": text_encoder_2,
-#                 "text_encoder_3": t5_encoder,
-#                 "tokenizer": tokenizer,
-#                 "tokenizer_2": tokenizer_2,
-#                 "tokenizer_3": t5_tokenizer,
-#             }
-#         }
+        return {
+            "encoders": {
+                "text_encoder": text_encoder,
+                "text_encoder_2": text_encoder_2,
+                "text_encoder_3": t5_encoder,
+                "tokenizer": tokenizer,
+                "tokenizer_2": tokenizer_2,
+                "tokenizer_3": t5_tokenizer,
+            }
+        }
 
 class SD3PromptEncoder(NodeBase):
     label = "SD3 Prompt Encoder"
     category = "embedding"
     resizable = True
     params = {
-        "pipeline": { "label": "Encoders", "display": "input", "type": "pipeline" },
+        "pipeline": { "label": "Encoders", "display": "input", "type": ["pipeline", "SD3TextEncoders"] },
         "embeds": { "label": "Embeddings", "display": "output", "type": "embedding" },
         "prompt": { "label": "Prompt", "type": "string", "display": "textarea" },
         "negative_prompt": { "label": "Negative Prompt", "type": "string", "display": "textarea" },

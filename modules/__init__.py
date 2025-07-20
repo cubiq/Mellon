@@ -25,10 +25,21 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
         # If it's a dictionary, recursively evaluate its keys and values
         if isinstance(node, ast.Dict):
             result = {}
+            # Iterate over keys and values. A None key should be a dictionary unpacking (**).
             for key_node, value_node in zip(node.keys, node.values):
-                key = safe_eval_ast_node_recursive(key_node, module_obj)
-                value = safe_eval_ast_node_recursive(value_node, module_obj)
-                result[key] = value
+                if key_node is None:
+                    # This is a dictionary unpacking (e.g., **other_params)
+                    try:
+                        unpacked_dict = safe_eval_ast_node_recursive(value_node, module_obj)
+                        if isinstance(unpacked_dict, dict):
+                            result.update(unpacked_dict)
+                    except Exception as e:
+                        logger.error(f"Error unpacking dictionary in {module_obj.__name__}: {e}", exc_info=True)
+                else:
+                    # This is a standard key-value pair
+                    key = safe_eval_ast_node_recursive(key_node, module_obj)
+                    value = safe_eval_ast_node_recursive(value_node, module_obj)
+                    result[key] = value
             return result
         # If it's a list, recursively evaluate its elements
         elif isinstance(node, ast.List):
@@ -90,6 +101,7 @@ def parse_node_class(node: ast.ClassDef, module_obj: ModuleType) -> Dict[str, An
         "category": None,
         "description": None,
         "resizable": None,
+        "skipParamsCheck": False,
         "style": {},
         "params": {},
     }
@@ -149,7 +161,6 @@ def parse_module_map(base_path: str) -> None:
             module_content = {}
             if hasattr(module_obj, "MODULE_MAP"):
                 module_content = module_obj.MODULE_MAP.copy()
-                logger.debug(f"Loaded {len(module_content)} classes from {module_name}")
 
             # Determine which files within the module to parse
             files_to_parse = getattr(module_obj, "MODULE_PARSE", ["main"])
@@ -165,7 +176,6 @@ def parse_module_map(base_path: str) -> None:
                     # Pass the file path and the live module object to the parser
                     parsed_content = parse_module_file(target_file, module_obj, ignore_classes)
                     if parsed_content:
-                        logger.debug(f"Parsed {len(parsed_content)} classes from '{target_file}'")
                         module_content.update(parsed_content)
                 else:
                     logger.warning(f"Could not find file '{file_stem}.py' in module '{module_name}'")

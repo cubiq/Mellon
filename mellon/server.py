@@ -73,6 +73,7 @@ class WebServer:
             web.get('/favicon.ico', self.favicon),
             web.get('/ws', self.websocket),
             web.get(r'/nodes{id:/?([\w\d_-]+/[\w\d_-]+)?}', self.nodes),
+            web.post('/fields/action', self.field_action),
             web.get('/cache/{node}/{field}', self.cache),
             web.get('/cache/{node}/{field}/{index}', self.cache),
             web.delete('/cache', self.delete_cache),
@@ -242,6 +243,7 @@ class WebServer:
                 "sid": current_task["sid"],
                 "started_at": time.time(),
                 "progress": 0,
+                "args": args,
             }
             task_list, current_task = self._get_queue()
             self.queue_message({
@@ -269,14 +271,16 @@ class WebServer:
             finally:
                 if self.current_task:
                     task_list, _ = self._get_queue()
-                    self.current_task = None
                     self.queue_message({
                         "type": "task_completed",
                         "task_id": task_id,
                         "completed_at": time.time(),
                         "queued": task_list,
                         "current": None,
+                        "sid": self.current_task["sid"],
+                        "args": args,
                     })
+                    self.current_task = None
                 self.main_queue.task_done()
                 self.interrupt_flag = False
 
@@ -332,9 +336,9 @@ class WebServer:
 
 
     """
-    ╭────────────────╮
-       Nodes Routes
-    ╰────────────────╯
+    ╭─────────────────────────╮
+       Nodes & Fields Routes
+    ╰─────────────────────────╯
     """
     async def nodes(self, request):
         id = request.match_info.get('id', '').strip('/')
@@ -352,9 +356,16 @@ class WebServer:
         for module, actions in modules.items():
             for action, values in actions.items():
                 params = deepcopy(values.get('params', {}))
+                #spawn_fields = []
                 for p in params:
                     if 'postProcess' in params[p]:
                         del params[p]["postProcess"]
+                    #if 'spawn' in params[p] and params[p]['spawn']:
+                    #    spawn_fields.append(p)
+                # spawn fields are identified by the '>>>' suffix in the field key
+                #for p in spawn_fields:
+                #    params[f"{p}>>>0"] = params[p]
+                #    del params[p]
 
                 output[f"{module}.{action}"] = {
                     'module': module,
@@ -376,6 +387,45 @@ class WebServer:
             'nodes': output
         })
 
+    async def field_action(self, request):
+        data = await request.json()
+        node = data.get('node')
+        sid = data.get('sid')
+        fn = data.get('fn')
+        values = data.get('values')
+        key = data.get('fieldKey', None)
+        queue = data.get('queue', False)
+
+        if node not in self.node_cache:
+            module = data.get('module')
+            action = data.get('action')
+            work_module = import_module(f"{module}.main")
+            work_action = getattr(work_module, action)
+            work_action = work_action(node_id=node)
+            self.node_cache[node] = work_action
+        
+        self.node_cache[node]._sid = sid # always update the sid as it may change over time
+
+        fn = getattr(self.node_cache[node], fn)
+        ref = {
+            "node": node,
+            "key": key,
+            "queue": queue,
+        }
+
+        if queue:
+            task_id = await self.queue_task(fn, (values, ref), None, sid, name=f"Field action")
+        else:
+            fn(values, ref)
+            task_id = None
+
+        return web.json_response({
+            "error": False,
+            "message": f"Field action `{fn}` for node `{node}` queued for processing",
+            "sid": sid,
+            "task_id": task_id,
+            "ref": ref,
+        })
 
     """
     ╭─────────────────────╮
@@ -451,6 +501,7 @@ class WebServer:
         logger.debug(f"Removed {len(nodes)} nodes from cache.")
         
         return web.json_response({"error": False, "nodes": nodes})
+    
 
     """
     ╭───────────────────╮
@@ -645,123 +696,8 @@ class WebServer:
                     }, sid)
                     return
 
-                module = nodes[id]['module']
-                action = nodes[id]['action']
-                params = nodes[id]['params']
+                self.execute_node(id, nodes[id], sid)
 
-                if module not in self.modules:
-                    raise ValueError(f"Invalid module: {module}")
-
-                if action not in self.modules[module]:
-                    raise ValueError(f"Invalid action: {action}")
-
-                # get the arguments values
-                args = {}
-                ui_fields = {}
-                for p in params:
-                    data_source_id = params[p].get('sourceId')
-                    data_param_key = params[p].get('sourceKey')
-
-                    # the field is a UI element, used mostly to display the data in the UI
-                    if 'display' in params[p] and params[p]['display'] in ['ui_text', 'ui_image', 'ui_audio', 'ui_video', 'ui_3d'] and data_param_key:
-                        ui_fields[p] = data_param_key
-                    # the field is an input that gets its value from an output of another node
-                    elif data_source_id and data_param_key:
-                        # spawn field handling
-                        if '>>>' in p or self.modules[module][action]['params'][p].get('spawn'):
-                            spawn_key = p.split('>>>')[0]
-                            if not spawn_key in args:
-                                args[spawn_key] = []
-    
-                            args[spawn_key].append(self.node_cache[data_source_id].output[data_param_key])
-                        else:
-                            args[p] = self.node_cache[data_source_id].output[data_param_key]
-                    # the field is a static value
-                    else:
-                        args[p] = params[p].get('value')
-                            
-                reset_memory_stats()
-                
-                # import the custom module
-                work_module = import_module(f"{module}.main")
-                work_action = getattr(work_module, action)
-
-                # tell the client that the node is running
-                self.queue_message({
-                    "type": "progress",
-                    "node": id,
-                    "progress": -1, # -1 sets the progress to indeterminate
-                }, sid)
-
-                start_time = time.time()
-
-                # if the node is not in the cache, initialize it
-                if id not in self.node_cache:
-                    self.node_cache[id] = work_action(id)
-
-                if not callable(self.node_cache[id]):
-                    raise TypeError(f"The class `{module}.{action}` is not callable. Make sure the class has a `__call__` method or extends `NodeBase`.")
-
-                # set the session id, it can be used to send messages directly from the node back to the client
-                self.node_cache[id]._sid = sid
-
-                # execute the node
-                self.node_cache[id](**args)
-
-                execution_time = time.time() - start_time
-                self.node_cache[id]._execution_time['last'] = execution_time
-                self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
-                self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
-
-                memory_stats = get_memory_stats()
-                if memory_stats:
-                    self.node_cache[id]._memory_usage['last'] = memory_stats['peak']
-                    self.node_cache[id]._memory_usage['min'] = min(self.node_cache[id]._memory_usage['min'], memory_stats['peak']) if self.node_cache[id]._memory_usage['min'] is not None else memory_stats['peak']
-                    self.node_cache[id]._memory_usage['max'] = max(self.node_cache[id]._memory_usage['max'], memory_stats['peak']) if self.node_cache[id]._memory_usage['max'] is not None else memory_stats['peak']
-
-                # the node has completed
-                self.queue_message({
-                    "type": "executed",
-                    "node": id,
-                    "name": f"{module}.{action}",
-                    "hasChanged": self.node_cache[id]._has_changed,
-                    "executionTime": self.node_cache[id]._execution_time,
-                    "memoryUsage": self.node_cache[id]._memory_usage
-                }, sid)
-
-                for ui_key, data_key in ui_fields.items():
-                    # if the data key is an output, get the value from the output otherwise from the params
-                    if data_key in self.node_cache[id].output:
-                        source_value = self.node_cache[id].output[data_key]
-                    else:
-                        source_value = self.node_cache[id].params[data_key]
-                    data_type = self.modules[module][action]['params'][data_key].get('type') # data type of the source field
-                    data_format = self.modules[module][action]['params'][ui_key].get('type', 'json') # json, raw, url
-                    message = None
-
-                    if data_format == 'json' or data_format == 'url':
-                        #data_value = to_base64(data_type, source_value) if data_format == 'json' else f"/cache/{id}/{data_key}?t={time.time()}"
-                        source_value = source_value if isinstance(source_value, list) else [source_value]
-                        if data_format == 'json':
-                            data_value  = [to_base64(data_type, item) for item in source_value]
-                        else:
-                            data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}" for i in range(len(source_value))]
-
-                        message = {
-                            'client_id': sid,
-                            'type': 'update_value',
-                            'node': id,
-                            'key': ui_key,
-                            'data_type': data_type,
-                            'value': data_value
-                        }
-                    elif data_format == 'raw':
-                        # TODO: add support for raw data
-                        message = to_bytes(data_type, source_value)
-
-                    if message:
-                        self.queue_message(message, sid)
-                
                 # broadcast the task progress
                 if self.current_task:
                     task_progress += task_progress_step
@@ -795,6 +731,147 @@ class WebServer:
         
         return web.json_response({"error": False, "message": "Execution set for interruption."})
 
+    def execute_node(self, id, node, sid):
+        module = node['module']
+        action = node['action']
+        params = node['params']
+
+        if module not in self.modules:
+            raise ValueError(f"Invalid module: {module}")
+
+        if action not in self.modules[module]:
+            raise ValueError(f"Invalid action: {action}")
+
+        # get the arguments values
+        args = {}
+        ui_fields = {}
+
+        for p in params:
+            data_source_id = params[p].get('sourceId')
+            data_param_key = params[p].get('sourceKey')
+
+            # the field is a UI element, used mostly to display the data in the UI
+            if 'display' in params[p] and params[p]['display'] in ['ui_text', 'ui_image', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button'] and data_param_key:
+                ui_fields[p] = data_param_key
+            # the field is an input that gets its value from an output of another node
+            elif data_source_id and data_param_key:
+                # spawn field handling
+                #if '>>>' in p or self.modules[module][action]['params'][p].get('spawn'):
+                if params[p].get('spawn'):
+                    spawn_key = p.split('>>>')[0]
+                    if not spawn_key in args:
+                        args[spawn_key] = []
+
+                    args[spawn_key].append(self.node_cache[data_source_id].output[data_param_key])
+                else:
+                    args[p] = self.node_cache[data_source_id].output[data_param_key]
+            # the field is a static value
+            else:
+                args[p] = params[p].get('value')
+                    
+        reset_memory_stats()
+        
+        start_time = time.time()
+
+        # tell the client that the node is running
+        self.queue_message({
+            "type": "progress",
+            "node": id,
+            "progress": -1, # -1 sets the progress to indeterminate
+        }, sid)
+
+        # import the custom module
+        work_module = import_module(f"{module}.main")
+        work_action = getattr(work_module, action)
+
+        # if the node is not in the cache, initialize it
+        if id not in self.node_cache:
+            self.node_cache[id] = work_action(id)
+
+        if not callable(self.node_cache[id]):
+            raise TypeError(f"The class `{module}.{action}` is not callable. Make sure the class has a `__call__` method or extends `NodeBase`.")
+
+        # set the session id, it can be used to send messages from the node back to the client
+        self.node_cache[id]._sid = sid
+
+        # *** execute the node ***
+        self.node_cache[id](**args)
+
+        execution_time = time.time() - start_time
+        self.node_cache[id]._execution_time['last'] = execution_time
+        self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
+        self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
+
+        memory_stats = get_memory_stats()
+        if memory_stats:
+            self.node_cache[id]._memory_usage['last'] = memory_stats['peak']
+            self.node_cache[id]._memory_usage['min'] = min(self.node_cache[id]._memory_usage['min'], memory_stats['peak']) if self.node_cache[id]._memory_usage['min'] is not None else memory_stats['peak']
+            self.node_cache[id]._memory_usage['max'] = max(self.node_cache[id]._memory_usage['max'], memory_stats['peak']) if self.node_cache[id]._memory_usage['max'] is not None else memory_stats['peak']
+
+        # the node has completed
+        self.queue_message({
+            "type": "executed",
+            "node": id,
+            "name": f"{module}.{action}",
+            "hasChanged": self.node_cache[id]._has_changed,
+            "executionTime": self.node_cache[id]._execution_time,
+            "memoryUsage": self.node_cache[id]._memory_usage
+        }, sid)
+
+        for ui_key, data_key in ui_fields.items():
+            message = None
+
+            # skip for button fields
+            if self.modules[module][action]['params'][ui_key].get('display') == 'ui_button':
+                continue
+
+            # if the data key is an output, get the value from the output otherwise from the params
+            if data_key in self.node_cache[id].output:
+                source_value = self.node_cache[id].output[data_key]
+            else:
+                source_value = self.node_cache[id].params[data_key]
+            data_type = self.modules[module][action]['params'][data_key].get('type') # data type of the source field
+            data_format = self.modules[module][action]['params'][ui_key].get('type', 'json') # format of the returned value: json, raw, url
+
+            if data_format == 'json' or data_format == 'url':
+                #data_value = to_base64(data_type, source_value) if data_format == 'json' else f"/cache/{id}/{data_key}?t={time.time()}"
+                source_value = source_value if isinstance(source_value, list) else [source_value]
+                if data_format == 'json':
+                    data_value  = [to_base64(data_type, item) for item in source_value]
+                else:
+                    data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}" for i in range(len(source_value))]
+
+                message = {
+                    'client_id': sid,
+                    'type': 'update_value',
+                    'node': id,
+                    'key': ui_key,
+                    'data_type': data_type,
+                    'value': data_value
+                }
+            elif data_format == 'raw':
+                # TODO: add support for raw data
+                message = to_bytes(data_type, source_value)
+
+            if message:
+                self.queue_message(message, sid)
+
+
+    def trigger_node(self, source_id, output, sid):
+        if not self.current_task or source_id not in self.node_cache:
+            return
+        
+        graph = self.current_task['args']['graph']
+        nodes = graph['nodes']
+
+        for id in nodes:
+            params = nodes[id]['params']
+
+            for p in params:
+                data_source_id = params[p].get('sourceId')
+                data_param_key = params[p].get('sourceKey')
+                if data_source_id == source_id and data_param_key == output:
+                    self.execute_node(id, nodes[id], sid)
 
     """
     ╭────────────────╮
