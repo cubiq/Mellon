@@ -1,4 +1,5 @@
 import torch
+from PIL import Image
 
 def get_clip_prompt_embeds(prompt, tokenizer, text_encoder, clip_skip=None, noise=0.0, scale=1.0):
     max_length = tokenizer.model_max_length
@@ -146,3 +147,51 @@ def upcast_vae(model):
         model.decoder.mid_block.to(dtype)
 
     return model
+
+def sd3_latents_to_rgb(latents: torch.Tensor):
+    if latents.dim() == 4:
+        latents = latents[0]
+
+    scale_factor = 1.5305
+    shift_factor = 0.0609
+
+    # The SD3 latent_rgb_factors matrix
+    latent_rgb_factors = torch.tensor([
+        [-0.0645,  0.0177,  0.1052],
+        [ 0.0028,  0.0312,  0.0650],
+        [ 0.1848,  0.0762,  0.0360],
+        [ 0.0944,  0.0360,  0.0889],
+        [ 0.0897,  0.0506, -0.0364],
+        [-0.0020,  0.1203,  0.0284],
+        [ 0.0855,  0.0118,  0.0283],
+        [-0.0539,  0.0658,  0.1047],
+        [-0.0057,  0.0116,  0.0700],
+        [-0.0412,  0.0281, -0.0039],
+        [ 0.1106,  0.1171,  0.1220],
+        [-0.0248,  0.0682, -0.0481],
+        [ 0.0815,  0.0846,  0.1207],
+        [-0.0120, -0.0055, -0.0867],
+        [-0.0749, -0.0634, -0.0456],
+        [-0.1418, -0.1457, -0.1259]
+    ], dtype=latents.dtype, device=latents.device)
+
+    latents = latents.permute(1, 2, 0)
+    latents = (latents - shift_factor) / scale_factor
+
+    # Perform the linear transformation
+    rgb_pixels = latents @ latent_rgb_factors
+
+    rgb_pixels = rgb_pixels.permute(2, 0, 1)
+
+    rgb_pixels = rgb_pixels.float()
+
+    # Clamp values to the global percentile range and normalize
+    q_005 = torch.quantile(rgb_pixels, 0.005)
+    q_995 = torch.quantile(rgb_pixels, 0.995)
+    image_tensor = torch.clamp(rgb_pixels, q_005, q_995)
+    image_tensor = (image_tensor - q_005) / (q_995 - q_005).add(1e-6)
+
+    image = image_tensor.mul(255).byte().cpu().numpy().transpose(1, 2, 0)
+    
+    image = Image.fromarray(image)
+    return image

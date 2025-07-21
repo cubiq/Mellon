@@ -14,6 +14,7 @@ cd Mellon
 python -m venv venv --prompt=Mellon
 source venv/bin/activate
 pip install --upgrade pip
+pip install wheel
 ```
 
 Install [pytorch](https://pytorch.org/get-started/locally/) for your platform. Generally with:
@@ -30,4 +31,14 @@ pip install -r requirements.txt
 
 Run the application with `python main.py` or --on Linux-- with the script `./run.sh`.
 
-Mellon has been tested on python **3.12**.
+Optionally you can also install [SageAttention](https://github.com/thu-ml/SageAttention) but you need v2 and it has to be compiled from source. Be sure to have the environment activated (the prompt should start with `(Mellon)`), clone the official repository somewhere outside of Mellon directory and compile it like so:
+
+```bash
+cd ~/some/directory
+git clone https://github.com/thu-ml/SageAttention.git
+cd SageAttention 
+export EXT_PARALLEL=4 NVCC_APPEND_FLAGS="--threads 8" MAX_JOBS=32 # parallel compiling
+pip install -e .
+```
+
+**Note:** Mellon has been tested on python **3.12**.

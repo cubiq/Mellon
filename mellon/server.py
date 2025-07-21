@@ -458,13 +458,15 @@ class WebServer:
         action = self.node_cache[node].class_name
         type = self.modules[module][action]['params'][field].get('type')
 
-        filename = request.rel_url.query.get('filename', f"{field}")
+        filename = request.query.get('filename', f"{field}")
 
         charset = None
         if type == 'image':
-            out = to_bytes(type, data)
-            content_type = f'image/webp'
-            filename = f"{filename}.webp"
+            format = request.query.get('format', 'WEBP').upper()
+            quality = request.query.get('quality')
+            out = to_bytes(type, data, {'format': format, 'quality': quality})
+            content_type = f'image/{format.lower()}'
+            filename = f"{filename}.{format.lower()}"
         elif type == 'text' or type.startswith('str'):
             out = str(data).encode('utf-8')
             content_type = f'text/plain'
@@ -830,38 +832,40 @@ class WebServer:
                 source_value = self.node_cache[id].output[data_key]
             else:
                 source_value = self.node_cache[id].params[data_key]
+                        
             data_type = self.modules[module][action]['params'][data_key].get('type') # data type of the source field
-            data_format = self.modules[module][action]['params'][ui_key].get('type', 'json') # format of the returned value: json, raw, url
+            data_format = self.modules[module][action]['params'][ui_key].get('type', 'text') # format of the returned value: text, raw, url
+            fieldOptions = self.modules[module][action]['params'][ui_key].get('fieldOptions', {})
 
-            if data_format == 'json' or data_format == 'url':
-                #data_value = to_base64(data_type, source_value) if data_format == 'json' else f"/cache/{id}/{data_key}?t={time.time()}"
-                source_value = source_value if isinstance(source_value, list) else [source_value]
-                if data_format == 'json':
-                    data_value  = [to_base64(data_type, item) for item in source_value]
+            source_value = source_value if isinstance(source_value, list) else [source_value]
+            if data_format == 'url':
+                if data_type == 'image':
+                    data_value = [f"/cache/{id}/{data_key}/{i}?format={fieldOptions.get('format', 'WEBP')}&quality={fieldOptions.get('quality', 100)}&t={time.time()}" for i in range(len(source_value))]
                 else:
                     data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}" for i in range(len(source_value))]
-
-                message = {
-                    'client_id': sid,
-                    'type': 'update_value',
-                    'node': id,
-                    'key': ui_key,
-                    'data_type': data_type,
-                    'value': data_value
-                }
             elif data_format == 'raw':
-                # TODO: add support for raw data
-                message = to_bytes(data_type, source_value)
+                data_value = [to_bytes(data_type, item, fieldOptions) for item in source_value]
+            else:
+                data_value  = [to_base64(data_type, item, fieldOptions) for item in source_value]
+
+            message = {
+                'client_id': sid,
+                'type': 'update_value',
+                'node': id,
+                'key': ui_key,
+                'data_type': data_type,
+                'value': data_value
+            }
 
             if message:
                 self.queue_message(message, sid)
 
 
     def trigger_node(self, source_id, output, sid):
-        if not self.current_task or source_id not in self.node_cache:
+        if not self.current_task:
             return
-        
-        graph = self.current_task['args']['graph']
+
+        graph = self.current_task['args'][0]
         nodes = graph['nodes']
 
         for id in nodes:
@@ -1002,31 +1006,50 @@ class WebServer:
             )
 
 
-def to_base64(type, value):
+def to_base64(type, value, options={}):
     import io
     import base64
     
     out = value
 
     if type == 'image':
+        format = options.get('format', 'WEBP').upper()
+        quality = options.get('quality')
+        if format == 'WEBP' and not quality:
+            quality = 100
+        elif format == 'JPEG' and not quality:
+            quality = 75
+        elif format == 'PNG' and not quality:
+            quality = None
+        mime_type = f"image/{format.lower()}"
+
         byte_arr = io.BytesIO()
-        value.save(byte_arr, format='WEBP', quality=100)
-        header = f"data:image/webp;base64,"
+        value.save(byte_arr, format=format, quality=int(quality))
+        # TODO: check shutil.copyfile
+        header = f"data:{mime_type};base64,"
         out = header + base64.b64encode(byte_arr.getvalue()).decode('utf-8')
     
     return out
 
-def to_bytes(type, value):
+def to_bytes(data_type, value, options={}):
     import io
+    from PIL import Image
     
     out = value
 
-    if type == 'image':
+    if isinstance(value, Image.Image):
+        format = options.get('format', 'WEBP').upper()
+        quality = options.get('quality')
+        if format == 'WEBP' and not quality:
+            quality = 100
+        elif format == 'JPEG' and not quality:
+            quality = 75
+        elif format == 'PNG' and not quality:
+            quality = None
+
         byte_arr = io.BytesIO()
-        value.save(byte_arr, format='WEBP', quality=100)
+        value.save(byte_arr, format=format, quality=int(quality))
         out = byte_arr.getvalue()
-    elif isinstance(value, bytes):
-        out = value
     elif isinstance(value, str):
         out = value.encode('utf-8')
     

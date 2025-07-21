@@ -225,6 +225,7 @@ class NodeBase:
 
         server.trigger_node(self.node_id, output, self._sid)
 
+
     """
     ╭───────────╮
       WebSocket
