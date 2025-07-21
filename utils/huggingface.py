@@ -10,56 +10,73 @@ from mellon.config import CONFIG
 
 def get_local_models():
     cache_dir = CONFIG.hf['cache_dir']
-    cache = scan_cache_dir(cache_dir)
+    try:
+        cache = scan_cache_dir(cache_dir)
+    except Exception as e:
+        logger.error(f'Error scanning cache directory: {e}')
+        return []
     local_models = []
 
     for repo in cache.repos:
-        model = {
-            'id': repo.repo_id,
-            'type': repo.repo_type,
-            'size': repo.size_on_disk,
-            'last_accessed': repo.last_accessed,
-            'revisions': [],
-            'class_names': [],
-        }
+        try:
+            model = {
+                'id': getattr(repo, 'repo_id', None),
+                'type': getattr(repo, 'repo_type', None),
+                'size': getattr(repo, 'size_on_disk', 0),
+                'last_accessed': getattr(repo, 'last_accessed', None),
+                'revisions': [],
+                'class_names': [],
+            }
+            if model['id'] is None or model['type'] is None:
+                logger.debug(f'Skipping invalid model: {repo}')
+                continue
 
-        if repo.repo_type == 'model' and repo.revisions:
-            for revision in repo.revisions:
-                model['revisions'].append({
-                    'hash': revision.commit_hash,
-                    'size': revision.size_on_disk,
-                    'last_modified': revision.last_modified,
-                })
+            if model['type'] == 'model' and hasattr(repo, 'revisions') and repo.revisions:
+                for revision in repo.revisions:
+                    rev = {
+                        'hash': getattr(revision, 'commit_hash', None),
+                        'size': getattr(revision, 'size_on_disk', 0),
+                        'last_modified': getattr(revision, 'last_modified', None),
+                    }
+                    if rev['hash'] is None:
+                        logger.debug(f'Skipping invalid revision: {revision}')
+                        continue
+                    model['revisions'].append(rev)
 
-            last_revision = list(repo.revisions)[-1]
-            for file in last_revision.files:
-                if file.file_name.lower().endswith('.json'):
-                    config = Path(file.file_path)
-                    if config.exists():
-                        with open(config, 'r') as f:
-                            config_data = json.load(f)
-                        if '_class_name' in config_data and config_data['_class_name'] not in model['class_names']:
-                            model['class_names'].append(config_data['_class_name'])
+                last_revision = list(repo.revisions)[-1]
+                for file in getattr(last_revision, 'files', []):
+                    if getattr(file, 'file_name', None) and file.file_name.lower().endswith('.json'):
+                        config = Path(getattr(file, 'file_path', None))
+                        if config and config.exists():
+                            try:
+                                with open(config, 'r') as f:
+                                    config_data = json.load(f)
+                                if '_class_name' in config_data and config_data['_class_name'] not in model['class_names']:
+                                    model['class_names'].append(config_data['_class_name'])
+                            except Exception as e:
+                                logger.debug(f'Error loading config file {config}: {e}')
+                                continue
 
-        if model['class_names']:
-            model['class_names'].sort()
+            if model['class_names']:
+                model['class_names'].sort()
 
-        local_models.append(model)
+            local_models.append(model)
+        except Exception as e:
+            logger.debug(f'Error processing model {repo}: {e}')
+            continue
 
     local_models.sort(key=lambda x: x['id'])
-
     return local_models
 
 def get_local_model_ids(id: Optional[str] = None, class_name: Optional[str] | bool = None):
     local_models = get_local_models()
     if id:
         local_models = [model for model in local_models if id.lower() in model['id'].lower()]
+
     if class_name is not None:
-        if class_name == True: # all models with class names
-            local_models = [model for model in local_models if model['class_names']]
-        elif class_name == False: # all models without class names
-            local_models = [model for model in local_models if len(model['class_names']) == 0]
-        else: # specific class name
+        if isinstance(class_name, bool):
+            local_models = [model for model in local_models if bool(model['class_names']) is class_name]
+        else:
             local_models = [model for model in local_models if class_name in model['class_names']]
 
     return [model['id'] for model in local_models]
