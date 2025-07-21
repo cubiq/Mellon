@@ -12,29 +12,14 @@ from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 logger = logging.getLogger("mellon")
 
 
-def node_get_component_id(node_id=None, manager=None, name=None):
+def node_get_component_info(node_id=None, manager=None, name=None):
     comp_ids = manager._lookup_ids(name=name, collection=node_id)
     if len(comp_ids) != 1:
         raise ValueError(
             f"Expected 1 component for {name} for node {node_id}, got {len(comp_ids)}"
         )
-    return list(comp_ids)[0]
+    return manager.get_model_info(list(comp_ids)[0])
 
-
-def node_get_component_info(node_id=None, manager=None, name=None):
-    comp_id = node_get_component_id(node_id, manager, name)
-    return manager.get_model_info(comp_id)
-
-
-def has_changed(old_params, new_params):
-    for key in new_params:
-        new_value = new_params.get(key)
-        old_value = old_params.get(key)
-        if new_value is not None and key not in old_params:
-            return True
-        if not deep_equal(old_value, new_value):
-            return True
-    return False
 
 
 t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["text2img"])
@@ -86,7 +71,7 @@ class AutoModelLoader(NodeBase):
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
         for comp_id in node_comp_ids:
-            components.remove(comp_id)
+            components.remove_from_collection(comp_id, self.node_id)
         super().__del__()
 
     def execute(self, name, model_id, dtype, variant=None, subfolder=None):
@@ -177,7 +162,7 @@ class ModelsLoader(NodeBase):
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
         for comp_id in node_comp_ids:
-            components.remove(comp_id)
+            components.remove_from_collection(comp_id, self.node_id)
         self.loader = None
         super().__del__()
 
@@ -195,59 +180,39 @@ class ModelsLoader(NodeBase):
             - device: {device}
         """)
 
-        repo_changed = has_changed(
-            self._old_params,
-            {
-                "repo_id": repo_id,
-                "dtype": dtype,
-            },
-        )
-        unet_input_changed = has_changed(self._old_params, {"unet": unet})
-        vae_input_changed = has_changed(self._old_params, {"vae": vae})
 
-        logger.debug(
-            f"Changes detected - repo: {repo_changed}, unet: {unet_input_changed}, vae: {vae_input_changed}, "
-        )
+        components_to_update = {"unet": components.get_one(unet["model_id"]) if unet else None, "vae": components.get_one(vae["model_id"]) if vae else None}
+        components_to_update = {k: v for k, v in components_to_update.items() if v is not None}
 
         self.loader = ModularPipeline.from_pretrained(
             repo_id, components_manager=components, collection=self.node_id
         )
+        # YIYI/Alvaro TODO: do we need to limit to these components?
+        ALL_COMPONENTS = ["unet", "vae", "scheduler", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+        components_to_load = [c for c in ALL_COMPONENTS if c not in components_to_update]
+        components_to_reload = []
 
-        if repo_changed:
-            self.loader.load_components(
-                names=[
-                    "scheduler",
-                    "text_encoder",
-                    "text_encoder_2",
-                    "tokenizer",
-                    "tokenizer_2",
-                ],
-                torch_dtype=dtype,
-            )
+        for comp_name in components_to_load:
+            comp_spec = self.loader.get_component_spec(comp_name)
+            if comp_spec.load_id != "null":
+                comp_with_same_load_id = components._lookup_ids(load_id=comp_spec.load_id)
+                same_comp_in_collection = []
+                for comp_id in comp_with_same_load_id:
+                    if isinstance(components.get_one(component_id=comp_id), torch.nn.Module):
+                        comp_dtype = components.get_one(component_id=comp_id).dtype
+                        if comp_dtype == dtype:
+                            same_comp_in_collection.append(comp_id)
+                    else:
+                        same_comp_in_collection.append(comp_id)
+                if not same_comp_in_collection:
+                    components_to_reload.append(comp_name)
 
-        loaded_components = {}
+        self.loader.load_components(names=components_to_reload, torch_dtype=dtype)
+        self.loader.update_components(**components_to_update)
 
-        # see if we can just use a growing input that we can just attach models
-        # and then load them we don't need `unet` or `vae` here, they will
-        # get automatically loaded depending on the type of model, even
-        # ip adapters or controlnets, this is the first step to make it a
-        # one in all wonder node
-        if unet is None:
-            if repo_changed or unet_input_changed:
-                self.loader.load_components("unet", torch_dtype=dtype)
-        else:
-            unet_component = components.get_one(unet["model_id"])
-            self.loader.update_components(unet=unet_component)
+        print(f" ModelsLoader: reloaded components: {components_to_reload}")
+        print(f" ModelsLoader: updated components: {components_to_update.keys()}")
 
-        if vae is None:
-            if repo_changed or vae_input_changed:
-                self.loader.load_components("vae", torch_dtype=dtype)
-        else:
-            new_vae = vae["model_id"]
-            self.loader.update_components(**new_vae)
-
-        if repo_changed:
-            components.enable_auto_cpu_offload(device=device)
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {
