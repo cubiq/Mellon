@@ -63,7 +63,7 @@ class Preview(NodeBase):
     resizable = True
     params = {
         "image": { "type": "image", "display": "input" },
-        "preview": { "type": "image", "display": "ui_image", "type": "url", "dataSource": "output" },
+        "preview": { "display": "ui_image", "type": "url", "dataSource": "output" },
         "output": { "type": "image", "display": "output" },
     }
     

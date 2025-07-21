@@ -1,4 +1,5 @@
 import torch
+from PIL import Image
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE
 from utils.memory_menager import memory_flush
@@ -6,7 +7,7 @@ from mellon.config import CONFIG
 from utils.huggingface import local_files_only, get_local_model_ids
 from diffusers import StableDiffusion3Pipeline, SD3Transformer2DModel, AutoencoderKL
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
-from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae
+from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae, sd3_latents_to_rgb
 
 HF_TOKEN = CONFIG.hf['token']
 
@@ -15,13 +16,23 @@ class SD3PipelineLoader(NodeBase):
         dtype = str_to_dtype(kwargs['dtype'])
         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
         transformer = kwargs.get('transformer', None)
+        text_encoders = kwargs.get('text_encoders', None)
+        load_t5 = kwargs.get('load_t5', True)
         config = {}
         
         if transformer:
             config['transformer'] = transformer
-        if not kwargs['load_t5']:
+        if not load_t5:
             config['text_encoder_3'] = None
             config['tokenizer_3'] = None
+
+        if text_encoders:
+            config['text_encoder'] = text_encoders.text_encoder
+            config['text_encoder_2'] = text_encoders.text_encoder_2
+            config['text_encoder_3'] = text_encoders.text_encoder_3
+            config['tokenizer'] = text_encoders.tokenizer
+            config['tokenizer_2'] = text_encoders.tokenizer_2
+            config['tokenizer_3'] = text_encoders.tokenizer_3
 
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             model_id,
@@ -35,10 +46,13 @@ class SD3PipelineLoader(NodeBase):
             pipeline.vae = upcast_vae(pipeline.vae)
 
         self.mm_add(pipeline.transformer, priority=3)
-        self.mm_add(pipeline.text_encoder, priority=1)
-        self.mm_add(pipeline.text_encoder_2, priority=1)
-        self.mm_add(pipeline.text_encoder_3, priority=1) if kwargs['load_t5'] else None
         self.mm_add(pipeline.vae, priority=2)
+
+        if not text_encoders:
+            self.mm_add(pipeline.text_encoder, priority=1)
+            self.mm_add(pipeline.text_encoder_2, priority=1)
+            if load_t5:
+                self.mm_add(pipeline.text_encoder_3, priority=1)
 
         return { "pipeline": pipeline }
 
@@ -80,51 +94,52 @@ class SD3PipelineLoader(NodeBase):
 
 #         return { 'model': transformer_model }
 
-# class SD3TextEncodersLoader(NodeBase):
-#     def execute(self, **kwargs):
-#         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
-#         dtype = str_to_dtype(kwargs['dtype'])
-#         load_t5 = kwargs.get('load_t5', True)
+class SD3TextEncodersLoader(NodeBase):
+    def execute(self, **kwargs):
+        model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
+        dtype = str_to_dtype(kwargs['dtype'])
+        load_t5 = kwargs.get('load_t5', True)
 
-#         config = {
-#             "torch_dtype": dtype,
-#             "local_files_only": local_files_only(model_id),
-#             "token": HF_TOKEN,
-#         }
+        config = {
+            "torch_dtype": dtype,
+            "local_files_only": local_files_only(model_id),
+            "token": HF_TOKEN,
+        }
 
-#         text_encoder = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder", **config)
-#         tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
-#         text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **config)
-#         tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **config)
+        text_encoder = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder", **config)
+        tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
+        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **config)
+        tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **config)
 
-#         self.mm_add(text_encoder, priority=1)
-#         self.mm_add(text_encoder_2, priority=1)
+        self.mm_add(text_encoder, priority=1)
+        self.mm_add(text_encoder_2, priority=1)
 
-#         t5_encoder = None
-#         t5_tokenizer = None
+        t5_encoder = None
+        t5_tokenizer = None
 
-#         if load_t5:
-#             t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **config)
-#             t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **config)
-#             self.mm_add(t5_encoder, priority=0)
+        if load_t5:
+            t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **config)
+            t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **config)
+            self.mm_add(t5_encoder, priority=0)
         
-#         return {
-#             "encoders": {
-#                 "text_encoder": text_encoder,
-#                 "text_encoder_2": text_encoder_2,
-#                 "text_encoder_3": t5_encoder,
-#                 "tokenizer": tokenizer,
-#                 "tokenizer_2": tokenizer_2,
-#                 "tokenizer_3": t5_tokenizer,
-#             }
-#         }
+        return {
+            "encoders": {
+                "text_encoder": text_encoder,
+                "text_encoder_2": text_encoder_2,
+                "text_encoder_3": t5_encoder,
+                "tokenizer": tokenizer,
+                "tokenizer_2": tokenizer_2,
+                "tokenizer_3": t5_tokenizer,
+            }
+        }
 
 class SD3PromptEncoder(NodeBase):
     label = "SD3 Prompt Encoder"
     category = "embedding"
     resizable = True
+    style = { "minWidth": '280px' }
     params = {
-        "pipeline": { "label": "Encoders", "display": "input", "type": "pipeline" },
+        "pipeline": { "label": "Encoders", "display": "input", "type": ["pipeline", "SD3TextEncoders"] },
         "embeds": { "label": "Embeddings", "display": "output", "type": "embedding" },
         "prompt": { "label": "Prompt", "type": "string", "display": "textarea" },
         "negative_prompt": { "label": "Negative Prompt", "type": "string", "display": "textarea" },
@@ -231,6 +246,20 @@ class SD3PromptEncoder(NodeBase):
                 "negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
             },
         }
+    
+class SD3LatentsPreview(NodeBase):
+    label = "SD3 Latents Preview"
+    category = "image"
+    params = {
+        "latents": { "label": "Latents", "display": "input", "type": "latent" },
+        "image": { "label": "Image", "display": "output", "type": "image" },
+        "preview": { "display": "ui_image", "dataSource": "image" },
+    }
+
+    def execute(self, latents, **kwargs):
+        image = sd3_latents_to_rgb(latents)
+        image = image.resize((image.width * 2, image.height * 2), resample=Image.Resampling.BICUBIC)
+        return { "image": image }
 
 class SD3Sampler(NodeBase):
     label = "SD3 Sampler"
@@ -252,6 +281,7 @@ class SD3Sampler(NodeBase):
             "FlowMatchHeunDiscreteScheduler": "Flow Match Heun Discrete",
         }, "default": "FlowMatchEulerDiscreteScheduler" },
         "device": { "label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST },
+        "latents_preview": { "label": "Latents Preview", "display": "output", "type": "latent" },
     }
 
     def execute(self, pipeline, **kwargs):
@@ -322,6 +352,12 @@ class SD3Sampler(NodeBase):
             vae=dummy_vae,
         )
 
+        def preview_callback(pipe, step_index, timestep, callback_kwargs):           
+            latents = callback_kwargs['latents']
+            self.trigger_output("latents_preview", latents)         
+            self.pipe_callback(pipe, step_index, timestep, callback_kwargs)
+            return callback_kwargs
+
         sampling_config = {
             'generator': generator,
             'prompt_embeds': positive['prompt_embeds'],
@@ -333,13 +369,13 @@ class SD3Sampler(NodeBase):
             'guidance_scale': cfg,
             'num_inference_steps': steps,
             'output_type': "latent",
-            'callback_on_step_end': self.pipe_callback,
+            'callback_on_step_end': preview_callback,
             #'num_images_per_prompt': 1, TODO: add support for multiple images
         }
 
         if cfg_cutoff:
             sampling_pipeline._cfg_cutoff_step = cfg_step
-            sampling_config['callback_on_step_end_tensor_inputs'] = ["prompt_embeds", "pooled_prompt_embeds"]
+            sampling_config['callback_on_step_end_tensor_inputs'] = ["latents", "prompt_embeds", "pooled_prompt_embeds"]
 
         del positive, negative, pipeline, embeds
     
@@ -368,4 +404,4 @@ class SD3Sampler(NodeBase):
 
         del sampling_pipeline, sampling_config, dummy_vae
 
-        return { "latents": latents }
+        return { "latents": latents, "latents_preview": latents }
