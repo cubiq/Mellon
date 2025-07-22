@@ -1,45 +1,49 @@
 import logging
+from typing import Any, List, Tuple
 
 import torch
 from diffusers import ComponentsManager, ComponentSpec, ModularPipeline
-from diffusers.modular_pipelines import SequentialPipelineBlocks
+from diffusers.modular_pipelines import BlockState, InputParam, PipelineBlock, SequentialPipelineBlocks
 from diffusers.modular_pipelines.stable_diffusion_xl import ALL_BLOCKS
+from PIL import Image
 
-from mellon.NodeBase import NodeBase, deep_equal
+from mellon.NodeBase import NodeBase
 from utils.huggingface import get_local_model_ids
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
+
 
 logger = logging.getLogger("mellon")
 
 
-def node_get_component_id(node_id=None, manager=None, name=None):
-    comp_ids = manager._lookup_ids(name=name, collection=node_id)
-    if len(comp_ids) != 1:
-        raise ValueError(
-            f"Expected 1 component for {name} for node {node_id}, got {len(comp_ids)}"
-        )
-    return list(comp_ids)[0]
+class PreviewBlock(PipelineBlock):
+    model_name = "stable-diffusion-xl"
+
+    @property
+    def inputs(self) -> List[Tuple[str, Any]]:
+        return [
+            InputParam("callback", default=None),
+        ]
+
+    def __call__(self, components: ComponentsManager, block_state: BlockState, i: int, t: int):
+        block_state.callback(block_state.latents, i)
+
+        return components, block_state
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
-    comp_id = node_get_component_id(node_id, manager, name)
-    return manager.get_model_info(comp_id)
-
-
-def has_changed(old_params, new_params):
-    for key in new_params:
-        new_value = new_params.get(key)
-        old_value = old_params.get(key)
-        if new_value is not None and key not in old_params:
-            return True
-        if not deep_equal(old_value, new_value):
-            return True
-    return False
+    comp_ids = manager._lookup_ids(name=name, collection=node_id)
+    if len(comp_ids) != 1:
+        raise ValueError(f"Expected 1 component for {name} for node {node_id}, got {len(comp_ids)}")
+    return manager.get_model_info(list(comp_ids)[0])
 
 
 t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["text2img"])
 text_blocks = t2i_blocks.sub_blocks.pop("text_encoder")
 decoder_blocks = t2i_blocks.sub_blocks.pop("decode")
+
+# add the preview block
+preview_block = PreviewBlock()
+t2i_blocks.sub_blocks["denoise"].sub_blocks.insert("preview_block", preview_block, 3)
 
 components = ComponentsManager()
 
@@ -52,41 +56,23 @@ class AutoModelLoader(NodeBase):
     category = "loader"
     resizable = True
     params = {
-        "name": {
-            "label": "Name",
-            "type": "string",
-        },
-        "model_id": {
-            "label": "Model ID",
-            "type": "string",
-        },
+        "name": {"label": "Name", "type": "string"},
+        "model_id": {"label": "Model ID", "type": "string"},
         "dtype": {
             "label": "dtype",
             "options": ["float32", "float16", "bfloat16"],
             "default": "float16",
             "postProcess": str_to_dtype,
         },
-        "subfolder": {
-            "label": "Subfolder",
-            "type": "string",
-            "default": "",
-        },
-        "variant": {
-            "type": "string",
-            "default": "",
-            "options": ["", "fp16", "bf16"],
-        },
-        "model": {
-            "label": "Model",
-            "display": "output",
-            "type": "diffusers_auto_model",
-        },
+        "subfolder": {"label": "Subfolder", "type": "string", "default": ""},
+        "variant": {"type": "string", "default": "", "options": ["", "fp16", "bf16"]},
+        "model": {"label": "Model", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
         for comp_id in node_comp_ids:
-            components.remove(comp_id)
+            components.remove_from_collection(comp_id, self.node_id)
         super().__del__()
 
     def execute(self, name, model_id, dtype, variant=None, subfolder=None):
@@ -101,9 +87,7 @@ class AutoModelLoader(NodeBase):
         variant = None if variant == "" else variant
         subfolder = None if subfolder == "" else subfolder
 
-        spec = ComponentSpec(
-            name=name, repo=model_id, subfolder=subfolder, variant=variant
-        )
+        spec = ComponentSpec(name=name, repo=model_id, subfolder=subfolder, variant=variant)
         model = spec.load(torch_dtype=dtype)
         comp_id = components.add(name, model, collection=self.node_id)
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
@@ -121,9 +105,7 @@ class ModelsLoader(NodeBase):
             "label": "Repository ID",
             "display": "autocomplete",
             "type": "string",
-            "options": get_local_model_ids(
-                class_name="StableDiffusionXLModularPipeline"
-            ),
+            "options": get_local_model_ids(class_name="StableDiffusionXLModularPipeline"),
             "fieldOptions": {"noValidation": True},
         },
         "dtype": {
@@ -132,42 +114,13 @@ class ModelsLoader(NodeBase):
             "default": "float16",
             "postProcess": str_to_dtype,
         },
-        "device": {
-            "label": "Device",
-            "type": "string",
-            "default": DEFAULT_DEVICE,
-            "options": DEVICE_LIST,
-        },
-        "unet": {
-            "label": "Unet",
-            "display": "input",
-            "type": "diffusers_auto_model",
-        },
-        "vae": {
-            "label": "VAE",
-            "display": "input",
-            "type": "diffusers_auto_model",
-        },
-        "text_encoders": {
-            "label": "Text Encoders",
-            "display": "output",
-            "type": "text_encoders",
-        },
-        "unet_out": {
-            "label": "UNet",
-            "display": "output",
-            "type": "diffusers_auto_model",
-        },
-        "vae_out": {
-            "label": "VAE",
-            "display": "output",
-            "type": "diffusers_auto_model",
-        },
-        "scheduler": {
-            "label": "Scheduler",
-            "display": "output",
-            "type": "scheduler",
-        },
+        "device": {"label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
+        "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
+        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "text_encoders"},
+        "unet_out": {"label": "UNet", "display": "output", "type": "diffusers_auto_model"},
+        "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
+        "scheduler": {"label": "Scheduler", "display": "output", "type": "scheduler"},
     }
 
     def __init__(self, node_id=None):
@@ -177,7 +130,7 @@ class ModelsLoader(NodeBase):
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
         for comp_id in node_comp_ids:
-            components.remove(comp_id)
+            components.remove_from_collection(comp_id, self.node_id)
         self.loader = None
         super().__del__()
 
@@ -195,77 +148,49 @@ class ModelsLoader(NodeBase):
             - device: {device}
         """)
 
-        repo_changed = has_changed(
-            self._old_params,
-            {
-                "repo_id": repo_id,
-                "dtype": dtype,
-            },
-        )
-        unet_input_changed = has_changed(self._old_params, {"unet": unet})
-        vae_input_changed = has_changed(self._old_params, {"vae": vae})
+        components_to_update = {
+            "unet": components.get_one(unet["model_id"]) if unet else None,
+            "vae": components.get_one(vae["model_id"]) if vae else None,
+        }
+        components_to_update = {k: v for k, v in components_to_update.items() if v is not None}
 
-        logger.debug(
-            f"Changes detected - repo: {repo_changed}, unet: {unet_input_changed}, vae: {vae_input_changed}, "
-        )
+        self.loader = ModularPipeline.from_pretrained(repo_id, components_manager=components, collection=self.node_id)
 
-        self.loader = ModularPipeline.from_pretrained(
-            repo_id, components_manager=components, collection=self.node_id
-        )
+        # YIYI/Alvaro TODO: do we need to limit to these components?
+        ALL_COMPONENTS = ["unet", "vae", "scheduler", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+        components_to_load = [c for c in ALL_COMPONENTS if c not in components_to_update]
+        components_to_reload = []
 
-        if repo_changed:
-            self.loader.load_components(
-                names=[
-                    "scheduler",
-                    "text_encoder",
-                    "text_encoder_2",
-                    "tokenizer",
-                    "tokenizer_2",
-                ],
-                torch_dtype=dtype,
-            )
+        for comp_name in components_to_load:
+            comp_spec = self.loader.get_component_spec(comp_name)
+            if comp_spec.load_id != "null":
+                comp_with_same_load_id = components._lookup_ids(load_id=comp_spec.load_id)
+                same_comp_in_collection = []
+                for comp_id in comp_with_same_load_id:
+                    if isinstance(components.get_one(component_id=comp_id), torch.nn.Module):
+                        comp_dtype = components.get_one(component_id=comp_id).dtype
+                        if comp_dtype == dtype:
+                            same_comp_in_collection.append(comp_id)
+                    else:
+                        same_comp_in_collection.append(comp_id)
+                if not same_comp_in_collection:
+                    components_to_reload.append(comp_name)
 
-        loaded_components = {}
+        self.loader.load_components(names=components_to_reload, torch_dtype=dtype)
+        self.loader.update_components(**components_to_update)
 
-        # see if we can just use a growing input that we can just attach models
-        # and then load them we don't need `unet` or `vae` here, they will
-        # get automatically loaded depending on the type of model, even
-        # ip adapters or controlnets, this is the first step to make it a
-        # one in all wonder node
-        if unet is None:
-            if repo_changed or unet_input_changed:
-                self.loader.load_components("unet", torch_dtype=dtype)
-        else:
-            unet_component = components.get_one(unet["model_id"])
-            self.loader.update_components(unet=unet_component)
-
-        if vae is None:
-            if repo_changed or vae_input_changed:
-                self.loader.load_components("vae", torch_dtype=dtype)
-        else:
-            new_vae = vae["model_id"]
-            self.loader.update_components(**new_vae)
-
-        if repo_changed:
-            components.enable_auto_cpu_offload(device=device)
+        print(f" ModelsLoader: reloaded components: {components_to_reload}")
+        print(f" ModelsLoader: updated components: {components_to_update.keys()}")
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {
-            "unet_out": node_get_component_info(
-                node_id=self.node_id, manager=components, name="unet"
-            ),
-            "vae_out": node_get_component_info(
-                node_id=self.node_id, manager=components, name="vae"
-            ),
+            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name="unet"),
+            "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
             "text_encoders": {
-                k: node_get_component_info(
-                    node_id=self.node_id, manager=components, name=k
-                )
+                k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
                 for k in ["text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
             },
-            "scheduler": node_get_component_info(
-                node_id=self.node_id, manager=components, name="scheduler"
-            ),
+            "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
         }
 
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
@@ -278,47 +203,23 @@ class EncodePrompt(NodeBase):
     category = "embedding"
     resizable = True
     params = {
-        "text_encoders": {
-            "label": "Text Encoders",
-            "type": "text_encoders",
-            "display": "input",
-        },
-        "prompt": {
-            "label": "Prompt",
-            "type": "string",
-            "default": "",
-            "display": "textarea",
-        },
-        "negative_prompt": {
-            "label": "Negative Prompt",
-            "type": "string",
-            "default": "",
-            "display": "textarea",
-        },
-        "embeddings": {
-            "label": "Text Embeddings",
-            "display": "output",
-            "type": "embeddings",
-        },
+        "text_encoders": {"label": "Text Encoders", "type": "text_encoders", "display": "input"},
+        "prompt": {"label": "Prompt", "type": "string", "default": "", "display": "textarea"},
+        "negative_prompt": {"label": "Negative Prompt", "type": "string", "default": "", "display": "textarea"},
+        "embeddings": {"label": "Text Embeddings", "display": "output", "type": "embeddings"},
     }
 
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._text_encoder_node = text_blocks.init_pipeline(
-            components_manager=components
-        )
+        self._text_encoder_node = text_blocks.init_pipeline(components_manager=components)
 
     def execute(self, text_encoders, prompt, negative_prompt):
         logger.debug(f" EncodePrompt ({self.node_id}) received parameters:")
         logger.debug(f" - text_encoders: {text_encoders}")
 
         text_encoder_components = {
-            "text_encoder": components.get_one(
-                text_encoders["text_encoder"]["model_id"]
-            ),
-            "text_encoder_2": components.get_one(
-                text_encoders["text_encoder_2"]["model_id"]
-            ),
+            "text_encoder": components.get_one(text_encoders["text_encoder"]["model_id"]),
+            "text_encoder_2": components.get_one(text_encoders["text_encoder_2"]["model_id"]),
             "tokenizer": components.get_one(text_encoders["tokenizer"]["model_id"]),
             "tokenizer_2": components.get_one(text_encoders["tokenizer_2"]["model_id"]),
         }
@@ -344,51 +245,14 @@ class Denoise(NodeBase):
     category = "sampler"
     resizable = True
     params = {
-        "unet": {
-            "label": "Unet",
-            "display": "input",
-            "type": "diffusers_auto_model",
-        },
-        "scheduler": {
-            "label": "Scheduler",
-            "display": "input",
-            "type": "scheduler",
-        },
-        "embeddings": {
-            "label": "Text Embeddings",
-            "display": "input",
-            "type": "embeddings",
-        },
-        "width": {
-            "label": "Width",
-            "type": "int",
-            "default": 1024,
-            "min": 64,
-            "step": 8,
-        },
-        "height": {
-            "label": "Height",
-            "type": "int",
-            "default": 1024,
-            "min": 64,
-            "step": 8,
-        },
-        "seed": {
-            "label": "Seed",
-            "type": "int",
-            "display": "random",
-            "default": 0,
-            "min": 0,
-            "max": 4294967295,
-        },
-        "steps": {
-            "label": "Steps",
-            "type": "int",
-            "display": "slider",
-            "default": 30,
-            "min": 1,
-            "max": 100,
-        },
+        "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
+        "scheduler": {"label": "Scheduler", "display": "input", "type": "scheduler"},
+        "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
+        "latents": {"label": "Latents", "type": "latents", "display": "output"},
+        "width": {"label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8},
+        "height": {"label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8},
+        "seed": {"label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295},
+        "steps": {"label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 100},
         "cfg": {
             "label": "Guidance",
             "type": "float",
@@ -398,11 +262,7 @@ class Denoise(NodeBase):
             "max": 50.0,
             "step": 0.5,
         },
-        "latents": {
-            "label": "Latents",
-            "type": "latents",
-            "display": "output",
-        },
+        "latents_preview": {"label": "Latents Preview", "display": "output", "type": "latent"},
     }
 
     def __init__(self, node_id=None):
@@ -422,15 +282,18 @@ class Denoise(NodeBase):
 
         unet_component = components.get_one(unet["model_id"])
         scheduler_component = components.get_one(scheduler["model_id"])
-        self._denoise_node.update_components(
-            unet=unet_component, scheduler=scheduler_component
-        )
+        self._denoise_node.update_components(unet=unet_component, scheduler=scheduler_component)
 
         generator = torch.Generator(device="cuda").manual_seed(seed)
 
         guider_spec = self._denoise_node.get_component_spec("guider")
         guider_spec.config["guidance_scale"] = cfg
         self._denoise_node.update_components(guider=guider_spec)
+
+        def preview_callback(latents, step: int):
+            self.trigger_output("latents_preview", latents)
+            progress = int((step + 1) / steps * 100)
+            self.progress(progress)
 
         latents = self._denoise_node(
             **embeddings,
@@ -439,9 +302,41 @@ class Denoise(NodeBase):
             height=height,
             generator=generator,
             output="latents",
+            callback=preview_callback,
         )
 
-        return {"latents": latents}
+        return {"latents": latents, "latents_preview": latents}
+
+
+class LatentsPreview(NodeBase):
+    label = "Latents Preview"
+    category = "image"
+    resizable = True
+    params = {
+        "latents": {"label": "Latents", "display": "input", "type": "latent"},
+        "image": {"label": "Image", "display": "output", "type": "image"},
+        "preview": {"display": "ui_image", "dataSource": "image"},
+    }
+
+    def execute(self, latents):
+        latent_rgb_factors = [
+            [0.3920, 0.4054, 0.4549],
+            [-0.2634, -0.0196, 0.0653],
+            [0.0568, 0.1687, -0.0755],
+            [-0.3112, -0.2359, -0.2076],
+        ]
+
+        image = None
+
+        if latents is not None:
+            latent_rgb_factors = torch.tensor(latent_rgb_factors, dtype=latents.dtype).to(device=latents.device)
+            latent_image = latents.squeeze(0).permute(1, 2, 0) @ latent_rgb_factors
+            latents_ubyte = ((latent_image + 1.0) / 2.0).clamp(0, 1).mul(0xFF)
+            denoised_image = latents_ubyte.byte().cpu().numpy()
+            image = Image.fromarray(denoised_image)
+            image = image.resize((image.width * 2, image.height * 2), resample=Image.Resampling.BICUBIC)
+
+        return {"image": image}
 
 
 class DecodeLatents(NodeBase):
@@ -449,21 +344,9 @@ class DecodeLatents(NodeBase):
     category = "sampler"
     resizable = True
     params = {
-        "vae": {
-            "label": "VAE",
-            "display": "input",
-            "type": "diffusers_auto_model",
-        },
-        "latents": {
-            "label": "Latents",
-            "type": "latents",
-            "display": "input",
-        },
-        "images": {
-            "label": "Images",
-            "type": "image",
-            "display": "output",
-        },
+        "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
+        "latents": {"label": "Latents", "type": "latents", "display": "input"},
+        "images": {"label": "Images", "type": "image", "display": "output"},
     }
 
     def __init__(self, node_id=None):
