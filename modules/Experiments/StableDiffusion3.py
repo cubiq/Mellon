@@ -252,7 +252,7 @@ class SD3LatentsPreview(NodeBase):
     category = "image"
     params = {
         "latents": { "label": "Latents", "display": "input", "type": "latent" },
-        "image": { "label": "Image", "display": "output", "type": "image" },
+        "image": { "label": "Image", "display": "output", "type": "image", "hidden": True },
         "preview": { "display": "ui_image", "dataSource": "image", "type": "url" },
     }
 

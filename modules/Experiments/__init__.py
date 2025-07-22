@@ -1,7 +1,7 @@
 from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.huggingface import get_local_model_ids
 
-MODULE_PARSE = ['StableDiffusion3', 'VAE']
+MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext']
 
 MODULE_MAP = {
     "SD3PipelineLoader": {
