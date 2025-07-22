@@ -27,12 +27,12 @@ class SD3PipelineLoader(NodeBase):
             config['tokenizer_3'] = None
 
         if text_encoders:
-            config['text_encoder'] = text_encoders.text_encoder
-            config['text_encoder_2'] = text_encoders.text_encoder_2
-            config['text_encoder_3'] = text_encoders.text_encoder_3
-            config['tokenizer'] = text_encoders.tokenizer
-            config['tokenizer_2'] = text_encoders.tokenizer_2
-            config['tokenizer_3'] = text_encoders.tokenizer_3
+            config['text_encoder'] = text_encoders['text_encoder']
+            config['text_encoder_2'] = text_encoders['text_encoder_2']
+            config['text_encoder_3'] = text_encoders['text_encoder_3']
+            config['tokenizer'] = text_encoders['tokenizer']
+            config['tokenizer_2'] = text_encoders['tokenizer_2']
+            config['tokenizer_3'] = text_encoders['tokenizer_3']
 
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             model_id,
@@ -252,13 +252,14 @@ class SD3LatentsPreview(NodeBase):
     category = "image"
     params = {
         "latents": { "label": "Latents", "display": "input", "type": "latent" },
-        "image": { "label": "Image", "display": "output", "type": "image" },
-        "preview": { "display": "ui_image", "dataSource": "image" },
+        "image": { "label": "Image", "display": "output", "type": "image", "hidden": True },
+        "preview": { "display": "ui_image", "dataSource": "image", "type": "url" },
     }
 
     def execute(self, latents, **kwargs):
         image = sd3_latents_to_rgb(latents)
-        image = image.resize((image.width * 2, image.height * 2), resample=Image.Resampling.BICUBIC)
+        if image:
+            image = image.resize((image.width * 2, image.height * 2), resample=Image.Resampling.BICUBIC)
         return { "image": image }
 
 class SD3Sampler(NodeBase):

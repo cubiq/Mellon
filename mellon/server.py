@@ -449,6 +449,9 @@ class WebServer:
         else:
             return web.HTTPNotFound(text=f"Field {field} not found in node {node} cache.")
         
+        if data is None:
+            return web.HTTPNotFound(text=f"Field {field} is empty in node {node} cache.")
+        
         if isinstance(data, list):
             index = max(0, min(len(data) - 1, int(index))) if index else 0
             data = data[index]
@@ -733,7 +736,7 @@ class WebServer:
         
         return web.json_response({"error": False, "message": "Execution set for interruption."})
 
-    def execute_node(self, id, node, sid):
+    def execute_node(self, id, node, sid, quiet=False):
         module = node['module']
         action = node['action']
         params = node['params']
@@ -770,24 +773,22 @@ class WebServer:
             # the field is a static value
             else:
                 args[p] = params[p].get('value')
-                    
-        reset_memory_stats()
-        
-        start_time = time.time()
 
-        # tell the client that the node is running
-        self.queue_message({
-            "type": "progress",
-            "node": id,
-            "progress": -1, # -1 sets the progress to indeterminate
-        }, sid)
+        if not quiet:
+            reset_memory_stats()
+            start_time = time.time()
 
-        # import the custom module
-        work_module = import_module(f"{module}.main")
-        work_action = getattr(work_module, action)
+            # tell the client that the node is running
+            self.queue_message({
+                "type": "progress",
+                "node": id,
+                "progress": -1, # -1 sets the progress to indeterminate
+            }, sid)
 
         # if the node is not in the cache, initialize it
         if id not in self.node_cache:
+            work_module = import_module(f"{module}.main")
+            work_action = getattr(work_module, action)
             self.node_cache[id] = work_action(id)
 
         if not callable(self.node_cache[id]):
@@ -799,28 +800,29 @@ class WebServer:
         # *** execute the node ***
         self.node_cache[id](**args)
 
-        execution_time = time.time() - start_time
-        self.node_cache[id]._execution_time['last'] = execution_time
-        self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
-        self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
+        if not quiet:
+            execution_time = time.time() - start_time
+            self.node_cache[id]._execution_time['last'] = execution_time
+            self.node_cache[id]._execution_time['min'] = min(self.node_cache[id]._execution_time['min'], execution_time) if self.node_cache[id]._execution_time['min'] is not None else execution_time
+            self.node_cache[id]._execution_time['max'] = max(self.node_cache[id]._execution_time['max'], execution_time) if self.node_cache[id]._execution_time['max'] is not None else execution_time
 
-        memory_stats = get_memory_stats()
-        if memory_stats:
-            self.node_cache[id]._memory_usage['last'] = memory_stats['peak']
-            self.node_cache[id]._memory_usage['min'] = min(self.node_cache[id]._memory_usage['min'], memory_stats['peak']) if self.node_cache[id]._memory_usage['min'] is not None else memory_stats['peak']
-            self.node_cache[id]._memory_usage['max'] = max(self.node_cache[id]._memory_usage['max'], memory_stats['peak']) if self.node_cache[id]._memory_usage['max'] is not None else memory_stats['peak']
+            memory_stats = get_memory_stats()
+            if memory_stats:
+                self.node_cache[id]._memory_usage['last'] = memory_stats['peak']
+                self.node_cache[id]._memory_usage['min'] = min(self.node_cache[id]._memory_usage['min'], memory_stats['peak']) if self.node_cache[id]._memory_usage['min'] is not None else memory_stats['peak']
+                self.node_cache[id]._memory_usage['max'] = max(self.node_cache[id]._memory_usage['max'], memory_stats['peak']) if self.node_cache[id]._memory_usage['max'] is not None else memory_stats['peak']
 
-        # the node has completed
-        self.queue_message({
-            "type": "executed",
-            "node": id,
-            "name": f"{module}.{action}",
-            "hasChanged": self.node_cache[id]._has_changed,
-            "executionTime": self.node_cache[id]._execution_time,
-            "memoryUsage": self.node_cache[id]._memory_usage
-        }, sid)
+            # the node has completed
+            self.queue_message({
+                "type": "executed",
+                "node": id,
+                "name": f"{module}.{action}",
+                "hasChanged": self.node_cache[id]._has_changed,
+                "executionTime": self.node_cache[id]._execution_time,
+                "memoryUsage": self.node_cache[id]._memory_usage
+            }, sid)
 
-        for ui_key, data_key in ui_fields.items():
+        for ui_key, data_key in ui_fields.items():           
             message = None
 
             # skip for button fields
@@ -840,13 +842,15 @@ class WebServer:
             source_value = source_value if isinstance(source_value, list) else [source_value]
             if data_format == 'url':
                 if data_type == 'image':
-                    data_value = [f"/cache/{id}/{data_key}/{i}?format={fieldOptions.get('format', 'WEBP')}&quality={fieldOptions.get('quality', 100)}&t={time.time()}" for i in range(len(source_value))]
+                    data_value = [f"/cache/{id}/{data_key}/{i}?format={fieldOptions.get('format', 'WEBP')}&quality={fieldOptions.get('quality', 100)}&t={time.time()}"
+                                  for i in range(len(source_value)) if source_value[i] is not None]
                 else:
-                    data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}" for i in range(len(source_value))]
+                    data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}"
+                                  for i in range(len(source_value)) if source_value[i] is not None]
             elif data_format == 'raw':
-                data_value = [to_bytes(data_type, item, fieldOptions) for item in source_value]
+                data_value = [to_bytes(data_type, item, fieldOptions) for item in source_value if item is not None]
             else:
-                data_value  = [to_base64(data_type, item, fieldOptions) for item in source_value]
+                data_value  = [to_base64(data_type, item, fieldOptions) for item in source_value if item is not None]
 
             message = {
                 'client_id': sid,
@@ -875,7 +879,7 @@ class WebServer:
                 data_source_id = params[p].get('sourceId')
                 data_param_key = params[p].get('sourceKey')
                 if data_source_id == source_id and data_param_key == output:
-                    self.execute_node(id, nodes[id], sid)
+                    self.execute_node(id, nodes[id], sid, quiet=True)
 
     """
     ╭────────────────╮

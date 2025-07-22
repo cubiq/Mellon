@@ -131,7 +131,7 @@ class NodeBase:
                     elif type.startswith('bool'):
                         params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
                 
-                if 'options' in self.default_params[key] and not ('no_validation' in self.default_params[key] and self.default_params[key]['no_validation']):
+                if 'options' in self.default_params[key] and not self.default_params[key].get('fieldOptions', {}).get('noValidation', False):
                     options = self.default_params[key]['options']
                     value_list = [value] if not isinstance(value, list) else value
                     if isinstance(options, list):
@@ -181,7 +181,7 @@ class NodeBase:
                 # if only one output is returned, assign it to the first output
                 self.output[next(iter(self.output))] = output
 
-        memory_flush()
+        #memory_flush()
         return self.output
     
     def __del__(self):
