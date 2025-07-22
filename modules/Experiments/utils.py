@@ -149,6 +149,9 @@ def upcast_vae(model):
     return model
 
 def sd3_latents_to_rgb(latents: torch.Tensor):
+    if latents is None:
+        return None
+    
     if latents.dim() == 4:
         latents = latents[0]
 

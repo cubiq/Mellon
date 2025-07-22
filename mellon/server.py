@@ -449,6 +449,9 @@ class WebServer:
         else:
             return web.HTTPNotFound(text=f"Field {field} not found in node {node} cache.")
         
+        if data is None:
+            return web.HTTPNotFound(text=f"Field {field} is empty in node {node} cache.")
+        
         if isinstance(data, list):
             index = max(0, min(len(data) - 1, int(index))) if index else 0
             data = data[index]
@@ -840,13 +843,15 @@ class WebServer:
             source_value = source_value if isinstance(source_value, list) else [source_value]
             if data_format == 'url':
                 if data_type == 'image':
-                    data_value = [f"/cache/{id}/{data_key}/{i}?format={fieldOptions.get('format', 'WEBP')}&quality={fieldOptions.get('quality', 100)}&t={time.time()}" for i in range(len(source_value))]
+                    data_value = [f"/cache/{id}/{data_key}/{i}?format={fieldOptions.get('format', 'WEBP')}&quality={fieldOptions.get('quality', 100)}&t={time.time()}"
+                                  for i in range(len(source_value)) if source_value[i] is not None]
                 else:
-                    data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}" for i in range(len(source_value))]
+                    data_value = [f"/cache/{id}/{data_key}/{i}?t={time.time()}"
+                                  for i in range(len(source_value)) if source_value[i] is not None]
             elif data_format == 'raw':
-                data_value = [to_bytes(data_type, item, fieldOptions) for item in source_value]
+                data_value = [to_bytes(data_type, item, fieldOptions) for item in source_value if item is not None]
             else:
-                data_value  = [to_base64(data_type, item, fieldOptions) for item in source_value]
+                data_value  = [to_base64(data_type, item, fieldOptions) for item in source_value if item is not None]
 
             message = {
                 'client_id': sid,

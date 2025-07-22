@@ -53,7 +53,7 @@ def get_local_models():
                                     config_data = json.load(f)
                                 if '_class_name' in config_data and config_data['_class_name'] not in model['class_names']:
                                     model['class_names'].append(config_data['_class_name'])
-                            except Exception as e:
+                            except (json.JSONDecodeError, IOError, TypeError) as e:
                                 logger.debug(f'Error loading config file {config}: {e}')
                                 continue
 
