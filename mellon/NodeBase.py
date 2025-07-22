@@ -181,7 +181,7 @@ class NodeBase:
                 # if only one output is returned, assign it to the first output
                 self.output[next(iter(self.output))] = output
 
-        memory_flush()
+        #memory_flush()
         return self.output
     
     def __del__(self):
