@@ -62,7 +62,12 @@ class Preview(NodeBase):
     category = "image"
     resizable = True
     params = {
-        "image": { "type": "image", "display": "input" },
+        "vae": { "type": "pipeline", "display": "input", "label": "VAE" },
+        "image": { "type": ["image", "latent"], "display": "input", "onChange": {
+            "action": "show",
+            "data": { True: ["vae"], False: [] },
+            "condition": { "type": "latent" }
+        }},
         "preview": { "display": "ui_image", "type": "url", "dataSource": "output" },
         "output": { "type": "image", "display": "output" },
     }
