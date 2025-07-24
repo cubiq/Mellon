@@ -140,13 +140,20 @@ class MemoryManager:
             if str(v['model'].device) == str(device):
                 self.unload_model(k)
     
-    def exec(self, func, device, exclude=[], args=None, kwargs=None, inference_mode=True):
+    def exec(self, func, device, models=[], exclude=[], args=None, kwargs=None, inference_mode=True):
         exclude_ids = []
         for v in exclude:
             k = v if isinstance(v, str) else v._mm_id if hasattr(v, '_mm_id') else None
             if k and k in self.cache:
                 exclude_ids.append(k)
-        
+
+        # auto load the models add them to the exclude list
+        for v in models:
+            k = v if isinstance(v, str) else v._mm_id if hasattr(v, '_mm_id') else None
+            if k and k in self.cache:
+                exclude_ids.append(k)
+                self.load_model(v, device)
+
         # Get a list of all models on the target device that can be unloaded.
         cache_priority = self._get_unload_candidates(device, exclude_ids=exclude_ids)
 

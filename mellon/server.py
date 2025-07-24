@@ -15,7 +15,7 @@ import hashlib
 
 from mellon.config import CONFIG
 from modules import MODULE_MAP
-from utils.huggingface import get_local_models, delete_model, search_hub, download_hub_model
+from utils.huggingface import get_local_models, delete_model, search_hub, download_hub_model, get_local_model_ids
 from utils.torch_utils import reset_memory_stats, get_memory_stats
 
 class WebServer:
@@ -888,7 +888,13 @@ class WebServer:
     """
 
     async def hf_cache(self, request):
-        return web.json_response(get_local_models())
+        class_name = request.query.get('className', None)
+        compact = bool(request.query.get('compact', False))
+
+        if class_name:
+            return web.json_response(get_local_model_ids(class_name=class_name))
+
+        return web.json_response(get_local_models(compact=compact))
 
     async def hf_cache_delete(self, request):
         hashes = request.match_info.get('hash').split(',')

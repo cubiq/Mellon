@@ -8,7 +8,7 @@ import json
 from typing import Optional, Callable
 from mellon.config import CONFIG
 
-def get_local_models():
+def get_local_models(compact: bool = False):
     cache_dir = CONFIG.hf['cache_dir']
     try:
         cache = scan_cache_dir(cache_dir)
@@ -59,6 +59,12 @@ def get_local_models():
 
             if model['class_names']:
                 model['class_names'].sort()
+
+            if compact:
+                model = {
+                    'id': model['id'],
+                    'class_names': model['class_names'],
+                }
 
             local_models.append(model)
         except Exception as e:

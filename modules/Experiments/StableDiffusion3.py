@@ -276,7 +276,7 @@ class SD3Sampler(NodeBase):
         "steps": { "label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 100 },
         "cfg": { "label": "Guidance", "type": "float", "display": "slider","default": 5, "min": 0.0, "max": 50.0, "step": 0.5 },
         "cfg_cutoff": { "label": "Enable CFG Cutoff", "type": "boolean", "default": False, "onChange": { True: ["cfg_step"], False: [] } },
-        "cfg_step": { "label": "Cutoff Step", "type": "float", "display": "slider", "default": 0, "min": 0, "max": 1, "step": 0.01, "onChange": { True: ["cfg_cutoff"], False: [] } },
+        "cfg_step": { "label": "Cutoff Step", "type": "float", "display": "slider", "default": 0.5, "min": 0, "max": 1, "step": 0.01, "onChange": { True: ["cfg_cutoff"], False: [] } },
         "scheduler": { "label": "Scheduler", "type": "string", "options": {
             "FlowMatchEulerDiscreteScheduler": "Flow Match Euler Discrete",
             "FlowMatchHeunDiscreteScheduler": "Flow Match Heun Discrete",
