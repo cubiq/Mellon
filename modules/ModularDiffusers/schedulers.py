@@ -333,11 +333,6 @@ class Scheduler(NodeBase):
 
     def updateNode(self, values, ref):
         value = values.get("scheduler")
-        key = ref.get("key")
-        value_from_key = values.get(key)
-
-        print(f"value: {value}, key: {key}, value_from_key: {value_from_key}")
-        print("All values", values)
 
         params = SCHEDULER_CONFIGS.get(value, {})
         self.send_node_definition(params)
