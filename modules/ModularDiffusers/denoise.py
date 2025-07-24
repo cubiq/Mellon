@@ -24,7 +24,7 @@ class PreviewBlock(PipelineBlock):
         ]
 
     def __call__(self, components: ComponentsManager, block_state: BlockState, i: int, t: int):
-        block_state.callback(block_state.latents, i)
+        block_state.callback(block_state.latents, i, components.scheduler.order)
 
         return components, block_state
 
@@ -49,9 +49,16 @@ class Denoise(NodeBase):
         "width": {"label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8},
         "height": {"label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8},
         "seed": {"label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295},
-        "steps": {"label": "Steps", "type": "int", "display": "slider", "default": 30, "min": 1, "max": 100},
-        "cfg": {
-            "label": "Guidance",
+        "num_inference_steps": {
+            "label": "Steps",
+            "type": "int",
+            "display": "slider",
+            "default": 30,
+            "min": 1,
+            "max": 100,
+        },
+        "guidance_scale": {
+            "label": "Guidance Scale",
             "type": "float",
             "display": "slider",
             "default": 5,
@@ -66,7 +73,7 @@ class Denoise(NodeBase):
         super().__init__(node_id)
         self._denoise_node = t2i_blocks.init_pipeline(components_manager=components)
 
-    def execute(self, unet, scheduler, width, height, embeddings, seed, steps, cfg):
+    def execute(self, unet, scheduler, width, height, embeddings, seed, num_inference_steps, guidance_scale):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
         logger.debug(f" - scheduler: {scheduler}")
@@ -74,8 +81,8 @@ class Denoise(NodeBase):
         logger.debug(f" - width: {width}")
         logger.debug(f" - height: {height}")
         logger.debug(f" - seed: {seed}")
-        logger.debug(f" - steps: {steps}")
-        logger.debug(f" - cfg: {cfg}")
+        logger.debug(f" - num_inference_steps: {num_inference_steps}")
+        logger.debug(f" - guidance_scale: {guidance_scale}")
 
         unet_component = components.get_one(unet["model_id"])
         scheduler_component = components.get_one(scheduler["model_id"])
@@ -84,17 +91,18 @@ class Denoise(NodeBase):
         generator = torch.Generator(device="cuda").manual_seed(seed)
 
         guider_spec = self._denoise_node.get_component_spec("guider")
-        guider_spec.config["guidance_scale"] = cfg
+        guider_spec.config["guidance_scale"] = guidance_scale
         self._denoise_node.update_components(guider=guider_spec)
 
-        def preview_callback(latents, step: int):
-            self.trigger_output("latents_preview", latents)
-            progress = int((step + 1) / steps * 100)
-            self.progress(progress)
+        def preview_callback(latents, step_index: int, scheduler_order: int):
+            if (step_index + 1) % scheduler_order == 0:
+                self.trigger_output("latents_preview", latents)
+                progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
+                self.progress(progress)
 
         latents = self._denoise_node(
             **embeddings,
-            num_inference_steps=steps,
+            num_inference_steps=num_inference_steps,
             width=width,
             height=height,
             generator=generator,
