@@ -53,7 +53,7 @@ class Denoise(NodeBase):
             "label": "Steps",
             "type": "int",
             "display": "slider",
-            "default": 30,
+            "default": 25,
             "min": 1,
             "max": 100,
         },
@@ -62,18 +62,26 @@ class Denoise(NodeBase):
             "type": "float",
             "display": "slider",
             "default": 5,
-            "min": 0.0,
-            "max": 50.0,
-            "step": 0.5,
+            "min": 1.0,
+            "max": 30.0,
+            "step": 0.1,
         },
         "latents_preview": {"label": "Latents Preview", "display": "output", "type": "latent"},
+        "guider": {
+            "label": "Guider",
+            "display": "input",
+            "type": "guider",
+            "onChange": {False: ["guidance_scale"], True: []},
+        },
     }
 
     def __init__(self, node_id=None):
         super().__init__(node_id)
         self._denoise_node = t2i_blocks.init_pipeline(components_manager=components)
 
-    def execute(self, unet, scheduler, width, height, embeddings, seed, num_inference_steps, guidance_scale):
+    def execute(
+        self, unet, scheduler, width, height, embeddings, seed, num_inference_steps, guidance_scale, guider=None
+    ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
         logger.debug(f" - scheduler: {scheduler}")
@@ -90,9 +98,12 @@ class Denoise(NodeBase):
 
         generator = torch.Generator(device="cuda").manual_seed(seed)
 
-        guider_spec = self._denoise_node.get_component_spec("guider")
-        guider_spec.config["guidance_scale"] = guidance_scale
-        self._denoise_node.update_components(guider=guider_spec)
+        if guider is None:
+            guider_spec = self._denoise_node.get_component_spec("guider")
+            guider_spec.config["guidance_scale"] = guidance_scale
+            self._denoise_node.update_components(guider=guider_spec)
+        else:
+            self._denoise_node.update_components(guider=guider)
 
         def preview_callback(latents, step_index: int, scheduler_order: int):
             if (step_index + 1) % scheduler_order == 0:
