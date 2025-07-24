@@ -3,6 +3,7 @@ from PIL import Image
 from mellon.config import CONFIG
 from pathlib import Path
 import logging
+from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 logger = logging.getLogger('mellon')
 
 class Load(NodeBase):
@@ -63,9 +64,10 @@ class Preview(NodeBase):
     resizable = True
     params = {
         "vae": { "type": "pipeline", "display": "input", "label": "VAE" },
+        "device": { "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST },
         "image": { "type": ["image", "latent"], "display": "input", "onChange": {
             "action": "show",
-            "data": { True: ["vae"], False: [] },
+            "data": { True: ["vae", "device"], False: [] },
             "condition": { "type": "latent" }
         }},
         "preview": { "display": "ui_image", "type": "url", "dataSource": "output" },
@@ -74,7 +76,24 @@ class Preview(NodeBase):
     
     def execute(self, **kwargs):
         image = kwargs["image"]
-        return {"output": image}
+        if image is None:
+            return {"output": None}
+        
+        # if image is an Image or an array of Images, pass it to the preview
+        if isinstance(image, Image.Image) or (isinstance(image, list) and len(image) > 0 and isinstance(image[0], Image.Image)):
+            return {"output": image}
+
+        from modules.Experiments.VAE import VAEDecode
+        pipeline = kwargs["vae"]
+        device = kwargs["device"]
+        if pipeline is None:
+            logger.error("VAE is required to decode latents")
+            return {"output": None}
+        pipeline = pipeline.vae if hasattr(pipeline, 'vae') else pipeline
+        vae = VAEDecode()
+        output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
+        
+        return {"output": output}
 
 
 class Resize(NodeBase):

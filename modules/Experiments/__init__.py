@@ -1,7 +1,7 @@
 from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.huggingface import get_local_model_ids
 
-MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext']
+MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL']
 
 MODULE_MAP = {
     "SD3PipelineLoader": {
@@ -16,8 +16,8 @@ MODULE_MAP = {
                 "display": "autocomplete",
                 "type": "string",
                 "default": "stabilityai/stable-diffusion-3.5-large",
-                "options": get_local_model_ids(class_name="StableDiffusion3Pipeline"),
-                "fieldOptions": { "noValidation": True, "model_loader": True }
+                "optionsSource": { "source": "hf_cache", "filter": { "className": "StableDiffusion3Pipeline" } },
+                "fieldOptions": { "noValidation": True }
             },
             "dtype": {
                 "label": "Dtype",
@@ -26,7 +26,7 @@ MODULE_MAP = {
                 "options": ['auto', 'float32', 'float16', 'bfloat16'],
             },
             "load_t5": { "label": "Load T5 Encoder", "type": "boolean", "default": True },
-            "text_encoders": { "label": "Text Encoders", "display": "input", "type": "SD3TextEncoders", "onChange": { True: ['load_t5'], False: []} },
+            "text_encoders": { "label": "Text Encoders", "display": "input", "type": "SD3TextEncoders", "onChange": { True: [], False: ['load_t5']} },
             "transformer": { "label": "Transformer", "display": "input", "type": "SD3Transformer2DModel" },
         }
     },

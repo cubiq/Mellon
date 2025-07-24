@@ -181,6 +181,7 @@ def parse_module_map(base_path: str) -> None:
                     logger.warning(f"Could not find file '{file_stem}.py' in module '{module_name}'")
 
             if module_content:
+                #MODULE_MAP[module_name] = dict(sorted(module_content.items(), key=lambda item: item[0]))
                 MODULE_MAP[module_name] = module_content
                 logger.info(f"Loaded {len(module_content)} class{'' if len(module_content) == 1 else 'es'} from module '{module_name}'.")
             else:

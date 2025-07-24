@@ -6,6 +6,7 @@ from utils.memory_menager import memory_manager, memory_flush
 import numpy as np
 import torch
 import sys
+from utils.huggingface import get_local_model_ids
 
 def get_module_output(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -143,6 +144,14 @@ class NodeBase:
                     else:
                         raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid options format for {key}: {options}")
             
+        hf_cache_update = False
+        for key in self.default_params:
+            optionsSource = self.default_params[key].get('optionsSource', {})
+            if optionsSource.get('source') == 'hf_cache':
+                local_models = get_local_model_ids()
+                if params[key] not in local_models:
+                    hf_cache_update = True
+
         # post processing
         for key in self.default_params:
             if 'postProcess' in self.default_params[key]:
@@ -180,8 +189,14 @@ class NodeBase:
                     raise ValueError(f"Module {self.module_name}.{self.class_name}: Only one output returned, but multiple are expected ({self.output.keys()})")
                 # if only one output is returned, assign it to the first output
                 self.output[next(iter(self.output))] = output
+            
+            if hf_cache_update:
+                print(f"HF Cache Update: {self.node_id}")
+                server.queue_message({
+                    "type": "hf_cache_update",
+                    "node": self.node_id,
+                }, self._sid)
 
-        #memory_flush()
         return self.output
     
     def __del__(self):
@@ -324,11 +339,11 @@ class NodeBase:
         
         return memory_manager.load_model(model, device)
     
-    def mm_exec(self, func, device, exclude=[], args=None, kwargs=None):
+    def mm_exec(self, func, device, models=[], exclude=[], args=None, kwargs=None):
         if self.node_id is None:
             return func(*args, **kwargs)
         
-        return memory_manager.exec(func, device, exclude, args, kwargs)
+        return memory_manager.exec(func, device, models, exclude, args, kwargs)
     
     def mm_unload_all(self, device=None):
         if self.node_id is None:
