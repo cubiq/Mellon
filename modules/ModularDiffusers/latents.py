@@ -19,6 +19,7 @@ decoder_blocks = t2i_blocks.sub_blocks.pop("decode")
 class LatentsPreview(NodeBase):
     label = "Latents Preview"
     category = "image"
+    resizable = True
     params = {
         "latents": {"label": "Latents", "display": "input", "type": "latent"},
         "image": {"label": "Image", "display": "output", "type": "image", "hidden": True},
