@@ -114,12 +114,33 @@ class Guider(NodeBase):
         guider_options = {}
 
         for key, value in kwargs.items():
-            guider_options[key] = value
+            if key == "use_original_formulation":
+                guider_options[key] = value
+            else:
+                guider_options[key] = float(value)
 
         logger.debug(f" - guider options: {guider_options}")
 
         guider_cls = getattr(__import__("diffusers", fromlist=[guider]), guider)
-        configs = {"PerturbedAttentionGuidance": {"perturbed_guidance_config": layers_config}}
+
+        if layers_config is None:
+            # create defaults
+            # TODO: need a way to find model arch for blocks and layers
+            configs = {
+                "PerturbedAttentionGuidance": {
+                    "perturbed_guidance_config": LayerSkipConfig(
+                        indices=[0],
+                        fqn="mid_block.attentions.0.transformer_blocks",
+                        dropout=1.0,
+                        skip_attention=False,
+                        skip_attention_scores=True,
+                        skip_ff=False,
+                    )
+                }
+            }
+        else:
+            configs = {"PerturbedAttentionGuidance": {"perturbed_guidance_config": layers_config}}
+
         options = {**guider_options}
 
         if guider in configs:
@@ -130,65 +151,92 @@ class Guider(NodeBase):
         return {"guider_out": guider_out}
 
 
-class Layers(NodeBase):
-    label = "Layers"
-    category = "sampler"
-    resizable = True
-    params = {
-        "block_name": {
-            "label": "Fully Qualified Name",
-            "type": "string",
-            "value": "mid_block.attentions.0.transformer_blocks",
-            "hidden": True,
-        },
-        "dropout": {
-            "label": "Mid Block",
-            "type": "float",
-            "display": "slider",
-            "value": 1.0,
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01,
-        },
-        "indices": {"label": "Indices", "type": "string", "value": "2,9", "display": "textarea"},
-        "skip_attention": {
-            "label": "Skip Attention",
-            "type": "boolean",
-            "value": True,
-        },
-        "skip_attention_scores": {
-            "label": "Skip Attention Scores",
-            "type": "boolean",
-            "value": False,
-        },
-        "skip_ff": {
-            "label": "Skip feed-forward blocks",
-            "type": "boolean",
-            "value": False,
-        },
-        "layers_config": {"label": "Layers", "display": "output", "type": "layers_config"},
-    }
+# class Layers(NodeBase):
+#     label = "Layers"
+#     category = "sampler"
+#     resizable = True
+#     params = {
+#         "down_blocks.1.attentions.0.transformer_blocks": {
+#             "label": "DownBlocks.1.Attentions.0",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "down_blocks.1.attentions.1.transformer_blocks": {
+#             "label": "DownBlocks.1.Attentions.1",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "down_blocks.2.attentions.0.transformer_blocks": {
+#             "label": "DownBlocks.2.Attentions.0",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "down_blocks.2.attentions.1.transformer_blocks": {
+#             "label": "DownBlocks.2.Attentions.1",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "mid_block.attentions.0.transformer_blocks": {
+#             "label": "MidBlock.Attentions.0",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.0.attentions.0.transformer_blocks": {
+#             "label": "UpBlocks.0.attentions.0",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.0.attentions.1.transformer_blocks": {
+#             "label": "UpBlocks.0.attentions.1",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.0.attentions.2.transformer_blocks": {
+#             "label": "UpBlocks.0.attentions.2",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.1.attentions.0.transformer_blocks": {
+#             "label": "UpBlocks.1.attentions.0",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.1.attentions.1.transformer_blocks": {
+#             "label": "UpBlocks.1.attentions.1",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "up_blocks.1.attentions.2.transformer_blocks": {
+#             "label": "UpBlocks.1.attentions.2",
+#             "display": "custom.LayerField",
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#         },
+#         "layers_config": {"label": "Layers", "display": "output", "type": "layers_config"},
+#     }
 
-    def execute(self, **kwargs):
-        # Parse indices from string to list of integers
-        indices_str = kwargs.get("indices", "2,9")
-        indices = [int(x.strip()) for x in indices_str.split(",")]
+#     def execute(self, **kwargs):
+#         layer_configs = []
 
-        # Get fqn from kwargs
-        fqn = kwargs.get("fqn", "mid_block.attentions.0.transformer_blocks")
+#         for fqn, config in kwargs.items():
+#             if not config.get("enabled", False):
+#                 continue
 
-        # Get optional boolean parameters with defaults
-        skip_attention = kwargs.get("skip_attention", False)
-        skip_attention_scores = kwargs.get("skip_attention_scores", True)
-        skip_ff = kwargs.get("skip_ff", False)
+#             indices_str = config.get("indices", "")
+#             indices = []
+#             if indices_str.strip():
+#                 indices = [int(x.strip()) for x in indices_str.split(",")]
+#             else:
+#                 indices = [0]
 
-        # Build LayerSkipConfig with parsed values
-        layer_config = LayerSkipConfig(
-            indices=indices,
-            fqn=fqn,
-            skip_attention=skip_attention,
-            skip_attention_scores=skip_attention_scores,
-            skip_ff=skip_ff,
-        )
+#             layer_config = LayerSkipConfig(
+#                 indices=indices,
+#                 fqn=fqn,
+#                 dropout=config.get("dropout", 1.0),
+#                 skip_attention=config.get("skip_attention", False),
+#                 skip_attention_scores=config.get("skip_attention_scores", True),
+#                 skip_ff=config.get("skip_ff", False),
+#             )
 
-        return {"layers_config": layer_config}
+#             layer_configs.append(layer_config)
+
+#         return {"layers_config": layer_configs}
