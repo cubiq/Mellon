@@ -6,15 +6,14 @@ from utils.memory_menager import memory_flush
 from mellon.config import CONFIG
 from utils.huggingface import local_files_only, get_local_model_ids
 from diffusers import StableDiffusionXLPipeline, AutoencoderKL
-from transformers import CLIPTextModelWithProjection, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
-from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae, sd3_latents_to_rgb
+from transformers import CLIPTextModelWithProjection, CLIPTokenizer
+from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae
 
 HF_TOKEN = CONFIG.hf['token']
 
 class SDXLPipelineLoader(NodeBase):
     label = "SDXL Pipeline Loader"
     category = "loader"
-    resizable = True
     style = { "minWidth": 360 }
     params = {
         "pipeline": { "label": "SD3 Pipeline", "display": "output", "type": "pipeline" },
@@ -32,7 +31,6 @@ class SDXLPipelineLoader(NodeBase):
             "default": "bfloat16",
             "options": ['auto', 'float32', 'float16', 'bfloat16'],
         },
-
     }
 
     def execute(self, **kwargs):
