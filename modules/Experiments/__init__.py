@@ -59,3 +59,52 @@ MODULE_MAP = {
         },
     },
 }
+
+QUANT_FIELDS = {
+    'bnb_type': {
+        'label': 'Type',
+        'options': ['8bit', '4bit'],
+        'default': '8bit',
+        'type': 'string',
+        'onChange': {
+            '4bit': ['bnb_double_quant'],
+        },
+    },
+    'bnb_double_quant': {
+        'label': 'Double Quant',
+        'type': 'boolean',
+        'default': True,
+    },
+}
+
+QUANT_SELECT = {
+    'quantization': {
+        'label': 'Quantization',
+        'type': 'string',
+        'options': { 'none': 'None', 'bnb': 'BitsAndBytes' },
+        'default': 'none',
+        'onChange': {
+            'bnb': ['bnb_type'],
+        },
+    },
+}
+
+PREFERRED_KONTEXT_RESOLUTIONS = [
+    (672, 1568),
+    (688, 1504),
+    (720, 1456),
+    (752, 1392),
+    (800, 1328),
+    (832, 1248),
+    (880, 1184),
+    (944, 1104),
+    (1024, 1024),
+    (1104, 944),
+    (1184, 880),
+    (1248, 832),
+    (1328, 800),
+    (1392, 752),
+    (1456, 720),
+    (1504, 688),
+    (1568, 672),
+]

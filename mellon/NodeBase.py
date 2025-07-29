@@ -72,6 +72,48 @@ def deep_equal(a, b):
     # 5. Default case: use standard equality for primitives (int, str, etc.)
     return a == b
 
+def recursive_type_cast(value, ttype, key):
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return [recursive_type_cast(v, ttype, key) for v in value]
+    if isinstance(value, dict):
+        return {k: recursive_type_cast(v, ttype, f"{key}.{k}") for k, v in value.items()}
+    if isinstance(value, tuple):
+        return tuple(recursive_type_cast(list(value), ttype, key))
+        #return tuple(recursive_type_cast(v, type, f"{key}.{i}") for i, v in enumerate(value))
+    if isinstance(value, np.ndarray):
+        return np.array(recursive_type_cast(value.tolist(), ttype, key), dtype=value.dtype)
+    
+    try:       
+        if ttype.startswith('int'):
+            if isinstance(value, str) and value.strip() == '':
+                return 0
+            return int(float(value))  # Convert via float first to handle "1.0" -> 1
+        if ttype.startswith('float'):
+            if isinstance(value, str) and value.strip() == '':
+                return 0.0
+            return float(value)
+        if ttype.startswith('str') or ttype.startswith('text'):
+            return str(value or '')
+        if ttype.startswith('bool'):
+            if isinstance(value, str):
+                # Handle string representations of booleans
+                value_lower = value.lower().strip()
+                if value_lower in ('true', '1', 'yes', 'on', 'y'):
+                    return True
+                if value_lower in ('false', '0', 'no', 'off', 'n'):
+                    return False
+                try:
+                    return bool(float(value_lower))
+                except ValueError:
+                    return value
+            return bool(value)
+        return value
+    except Exception:
+        return value
+
 class NodeBase:
     CALLBACK = 'execute'
 
@@ -117,20 +159,7 @@ class NodeBase:
                     type = self.default_params[key]['type']
                     if isinstance(type, list):
                         type = type[0]
-
-                    if type.startswith('int'):
-                        params[key] = int(value or 0) if not isinstance(value, list) else [int(v) for v in value]
-                    elif type.startswith('float'):
-                        params[key] = float(value or 0) if not isinstance(value, list) else [float(v) for v in value]
-                    elif type.startswith('str') or type.startswith('text'):
-                        if isinstance(value, dict):
-                            params[key] = value
-                        elif isinstance(value, list):
-                            params[key] = [str(v) for v in value]
-                        else:
-                            params[key] = str(value or '')
-                    elif type.startswith('bool'):
-                        params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
+                    params[key] = recursive_type_cast(value, type, key)
                 
                 if 'options' in self.default_params[key] and not self.default_params[key].get('fieldOptions', {}).get('noValidation', False):
                     options = self.default_params[key]['options']

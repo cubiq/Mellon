@@ -47,7 +47,19 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
         # If it's a tuple, recursively evaluate its elements
         elif isinstance(node, ast.Tuple):
             return tuple(safe_eval_ast_node_recursive(item, module_obj) for item in node.elts)
-        
+        # If it's a list comprehension, evaluate it
+        elif isinstance(node, ast.ListComp):
+            try:
+                expr = ast.Expression(body=node)
+                ast.fix_missing_locations(expr)
+                
+                # Compile the expression and then evaluate it in the context of the module
+                code = compile(expr, filename="<ast>", mode="eval")
+                return eval(code, module_obj.__dict__)
+            except Exception as e:
+                logger.error(f"Error evaluating list comprehension in module '{module_obj.__name__}': {e}", exc_info=True)
+                return ast.unparse(node) # Fallback to string on error
+
         # If it's a name (e.g., a variable or function name), try to resolve it.
         elif isinstance(node, ast.Name):
             try:
