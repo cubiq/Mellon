@@ -9,7 +9,7 @@ logger.debug("Loading modules...")
 
 # preload common functions
 from utils.huggingface import local_files_only, get_local_model_ids
-from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE
+from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE, CPU_DEVICE
 
 
 MODULE_MAP = {}

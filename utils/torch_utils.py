@@ -38,6 +38,7 @@ def device_list():
 
 DEVICE_LIST = device_list()
 DEFAULT_DEVICE = list(DEVICE_LIST.keys())[0]
+CPU_DEVICE = 'cpu:0' if 'cpu:0' in DEVICE_LIST else DEFAULT_DEVICE
 
 def str_to_dtype(dtype, *args):
     return {
