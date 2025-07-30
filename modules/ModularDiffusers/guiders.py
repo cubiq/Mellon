@@ -151,30 +151,106 @@ class Guider(NodeBase):
         return {"guider_out": guider_out}
 
 
-# class Layers(NodeBase):
-#     label = "Layers"
+class Layers(NodeBase):
+    label = "Layers"
+    category = "sampler"
+    resizable = True
+    params = {
+        "select_multi": {
+            "label": "Blocks",
+            "type": "string",
+            "display": "select",
+            "options": {
+                "down_blocks.1.attentions.0": "DownBlocks.1.Attentions.0",
+                "down_blocks.1.attentions.1": "DownBlocks.1.Attentions.1",
+                "down_blocks.2.attentions.0": "DownBlocks.2.Attentions.0",
+                "down_blocks.2.attentions.1": "DownBlocks.2.Attentions.1",
+                "mid_block.attentions.0": "MidBlock.Attentions.0",
+                "up_blocks.0.attentions.0": "UpBlocks.0.Attentions.0",
+                "up_blocks.0.attentions.1": "UpBlocks.0.Attentions.1",
+                "up_blocks.0.attentions.2": "UpBlocks.0.Attentions.2",
+                "up_blocks.1.attentions.0": "UpBlocks.1.Attentions.0",
+                "up_blocks.1.attentions.1": "UpBlocks.1.Attentions.1",
+                "up_blocks.1.attentions.2": "UpBlocks.1.Attentions.2",
+            },
+            "default": ["mid_block.attentions.0"],
+            "fieldOptions": {"multiple": True},
+            "onChange": {
+                "down_blocks.1.attentions.0": ["down_blocks.1.attentions.0"],
+                "down_blocks.1.attentions.1": ["down_blocks.1.attentions.1"],
+                "down_blocks.2.attentions.0": ["down_blocks.2.attentions.0"],
+                "down_blocks.2.attentions.1": ["down_blocks.2.attentions.1"],
+                "mid_block.attentions.0": ["mid_block.attentions.0"],
+                "up_blocks.0.attentions.0": ["up_blocks.0.attentions.0"],
+                "up_blocks.0.attentions.1": ["up_blocks.0.attentions.1"],
+                "up_blocks.0.attentions.2": ["up_blocks.0.attentions.2"],
+                "up_blocks.1.attentions.0": ["up_blocks.1.attentions.0"],
+                "up_blocks.1.attentions.1": ["up_blocks.1.attentions.1"],
+                "up_blocks.1.attentions.2": ["up_blocks.1.attentions.2"],
+            },
+        },
+        "down_blocks.1.attentions.0": {"label": "DownBlocks.1.0 Layers", "type": "string", "default": "0"},
+        "down_blocks.1.attentions.1": {"label": "DownBlocks.1.1 Layers", "type": "string", "default": "0"},
+        "down_blocks.2.attentions.0": {"label": "DownBlocks.2.0 Layers", "type": "string", "default": "0"},
+        "down_blocks.2.attentions.1": {"label": "DownBlocks.2.1 Layers", "type": "string", "default": "0"},
+        "mid_block.attentions.0": {"label": "MidBlock.0 Layers", "type": "string", "default": "0"},
+        "up_blocks.0.attentions.0": {"label": "UpBlocks.0.0 Layers", "type": "string", "default": "0"},
+        "up_blocks.0.attentions.1": {"label": "UpBlocks.0.1 Layers", "type": "string", "default": "0"},
+        "up_blocks.0.attentions.2": {"label": "UpBlocks.0.2 Layers", "type": "string", "default": "0"},
+        "up_blocks.1.attentions.0": {"label": "UpBlocks.1.0 Layers", "type": "string", "default": "0"},
+        "up_blocks.1.attentions.1": {"label": "UpBlocks.1.1 Layers", "type": "string", "default": "0"},
+        "up_blocks.1.attentions.2": {"label": "UpBlocks.1.2 Layers", "type": "string", "default": "0"},
+        "layers_config": {"label": "Layers", "display": "output", "type": "layers_config"},
+    }
+
+    def execute(self, **kwargs):
+        layer_configs = []
+
+        selected_blocks = kwargs.get("select_multi", [])
+
+        for block_name in selected_blocks:
+            indices_str = kwargs.get(block_name, "0")
+            indices = [int(x.strip()) for x in indices_str.split(",")]
+            layer_configs.append(
+                LayerSkipConfig(
+                    indices=indices,
+                    fqn=f"{block_name}.transformer_blocks",
+                    dropout=1.0,
+                    skip_attention=False,
+                    skip_attention_scores=True,
+                    skip_ff=False,
+                )
+            )
+
+        print(f"{layer_configs=}")
+
+        return {"layers_config": layer_configs}
+
+
+# class LayersFull(NodeBase):
+#     label = "LayersFull"
 #     category = "sampler"
 #     resizable = True
 #     params = {
 #         "down_blocks.1.attentions.0.transformer_blocks": {
 #             "label": "DownBlocks.1.Attentions.0",
 #             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
 #         },
 #         "down_blocks.1.attentions.1.transformer_blocks": {
 #             "label": "DownBlocks.1.Attentions.1",
 #             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
 #         },
 #         "down_blocks.2.attentions.0.transformer_blocks": {
 #             "label": "DownBlocks.2.Attentions.0",
 #             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": True},
 #         },
 #         "down_blocks.2.attentions.1.transformer_blocks": {
 #             "label": "DownBlocks.2.Attentions.1",
 #             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
+#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
 #         },
 #         "mid_block.attentions.0.transformer_blocks": {
 #             "label": "MidBlock.Attentions.0",
