@@ -8,7 +8,6 @@ safetensors
 protobuf
 sentencepiece
 einops
-flash-attn==2.8.0.post2
 xformers
 spandrel
 kornia
