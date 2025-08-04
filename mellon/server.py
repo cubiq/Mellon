@@ -1,19 +1,21 @@
 import logging
-logger = logging.getLogger('mellon')
 import asyncio
-from functools import partial
-from importlib import import_module
 from aiohttp import web, WSMsgType
 from aiohttp_cors import setup as cors_setup, ResourceOptions
+logging.getLogger('asyncio').setLevel(logging.WARNING)
+from functools import partial
+from importlib import import_module
 import json
 import nanoid
+from utils.paths import list_files
 from pathlib import Path
 import traceback
 import time
 from copy import deepcopy
-import hashlib
+logger = logging.getLogger('mellon')
 
 from mellon.config import CONFIG
+from mellon.modelstore import modelstore
 from modules import MODULE_MAP
 from utils.huggingface import get_local_models, delete_model, search_hub, download_hub_model, get_local_model_ids
 from utils.torch_utils import reset_memory_stats, get_memory_stats
@@ -46,6 +48,7 @@ class WebServer:
         
         self.main_queue = asyncio.Queue()
         self.background_queue = asyncio.Queue()
+        self._shutdown_event = asyncio.Event()
 
         self.main_worker_task = None
         self.background_worker_task = None
@@ -84,6 +87,7 @@ class WebServer:
             web.get('/queue', self.get_queue),
             web.delete('/queue/{task_id}', self.delete_task),
             web.get('/stop', self.stop_execution),
+            web.get('/local_models', self.local_models),
             web.get('/hf_cache', self.hf_cache),
             web.delete('/hf_cache/{hash}', self.hf_cache_delete),
             web.get('/hf_hub', self.hf_hub),
@@ -108,24 +112,40 @@ class WebServer:
         self.main_worker_task = self.loop.create_task(self._main_worker())
         self.background_worker_task = self.loop.create_task(self._background_worker())
         
-        self.runner = web.AppRunner(self.app, verbose=True, ssl=False)
+        self.runner = web.AppRunner(self.app, access_log=None)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, host=self.host, port=self.port, ssl_context=self.ssl_context)
         await self.site.start()
     
     async def cleanup(self):
+        # Signal shutdown to workers
+        self._shutdown_event.set()
+        
         # Stop the web server from accepting new connections.
         if self.site:
             await self.site.stop()
 
-        # Close all active websocket connections.
+        # Close all active websocket connections with timeout
         if self.ws_sessions:
-            close_coroutines = [ws.close() for ws in self.ws_sessions.values()]
-            await asyncio.gather(*close_coroutines, return_exceptions=True)
-
-        # Cleanup the runner.
-        if self.runner:
-            await self.runner.cleanup()
+            close_coroutines = []
+            for sid, ws in list(self.ws_sessions.items()):
+                try:
+                    if not ws.closed:
+                        close_coroutines.append(ws.close())
+                except Exception as e:
+                    logger.debug(f"Error preparing to close websocket {sid}: {e}")
+            
+            if close_coroutines:
+                try:
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*close_coroutines, return_exceptions=True),
+                        timeout=0.5
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"Websocket connections did not close within timeout, forcing shutdown")
+            
+            # Clear the sessions dict
+            self.ws_sessions.clear()
 
         # Cancel and clean up the background workers.
         if self.main_worker_task:
@@ -133,10 +153,30 @@ class WebServer:
         if self.background_worker_task:
             self.background_worker_task.cancel()
         
-        # Wait for the workers to finish.
+        # Add sentinel values to queues to wake up workers
+        try:
+            self.main_queue.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
+        try:
+            self.background_queue.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
+        
+        # Wait for the workers to finish with a timeout
         tasks_to_wait = [task for task in [self.main_worker_task, self.background_worker_task] if task]
         if tasks_to_wait:
-            await asyncio.gather(*tasks_to_wait, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks_to_wait, return_exceptions=True),
+                    timeout=2.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Worker tasks did not finish within timeout, forcing shutdown")
+
+        # Cleanup the runner.
+        if self.runner:
+            await self.runner.cleanup()
 
     """
     ╭───────────────╮
@@ -224,82 +264,121 @@ class WebServer:
         return web.json_response({"error": True, "message": f"Task not found in queue.", "task_id": task_id}, status=404)
     
     async def _main_worker(self):
-        while True:
-            task, args, future, task_id = await self.main_queue.get()
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # Use wait_for with a timeout to check shutdown periodically
+                    queue_item = await asyncio.wait_for(self.main_queue.get(), timeout=1.0)
+                    
+                    # Check for sentinel value (None) indicating shutdown
+                    if queue_item is None:
+                        self.main_queue.task_done()
+                        break
+                        
+                    task, args, future, task_id = queue_item
 
-            if task_id not in self.queued_tasks:
-                logger.debug(f"Task {task_id} was cancelled, skipping.")
-                if future:
-                    future.set_exception(asyncio.CancelledError(f"Task {task_id} was cancelled"))
-                self.main_queue.task_done()
-                continue
+                    if task_id not in self.queued_tasks:
+                        logger.debug(f"Task {task_id} was cancelled, skipping.")
+                        if future:
+                            future.set_exception(asyncio.CancelledError(f"Task {task_id} was cancelled"))
+                        self.main_queue.task_done()
+                        continue
 
-            current_task = self.queued_tasks.pop(task_id)
+                    current_task = self.queued_tasks.pop(task_id)
 
-            self.current_task = {
-                "task_id": task_id,
-                "task": task,
-                "name": current_task["name"],
-                "sid": current_task["sid"],
-                "started_at": time.time(),
-                "progress": 0,
-                "args": args,
-            }
-            task_list, current_task = self._get_queue()
-            self.queue_message({
-                "type": "task_started",
-                "task_id": task_id,
-                "queued": task_list,
-                "current": current_task,
-            })
-            
-            try:
-                if isinstance(args, tuple):
-                    result = await self.loop.run_in_executor(None, partial(task, *args))
-                elif isinstance(args, dict):
-                    result = await self.loop.run_in_executor(None, partial(task, **args))
-                else:
-                    result = await self.loop.run_in_executor(None, partial(task, args))
-                
-                if future:
-                    future.set_result(result)
-            except Exception as e:
-                #logger.error(f"Error processing main task: {e}")
-                logger.error(f"Error occurred in {traceback.format_exc()}")
-                if future:
-                    future.set_exception(e)
-            finally:
-                if self.current_task:
-                    task_list, _ = self._get_queue()
-                    self.queue_message({
-                        "type": "task_completed",
+                    self.current_task = {
                         "task_id": task_id,
-                        "completed_at": time.time(),
-                        "queued": task_list,
-                        "current": None,
-                        "sid": self.current_task["sid"],
+                        "task": task,
+                        "name": current_task["name"],
+                        "sid": current_task["sid"],
+                        "started_at": time.time(),
+                        "progress": 0,
                         "args": args,
+                    }
+                    task_list, current_task = self._get_queue()
+                    self.queue_message({
+                        "type": "task_started",
+                        "task_id": task_id,
+                        "queued": task_list,
+                        "current": current_task,
                     })
-                    self.current_task = None
-                self.main_queue.task_done()
-                self.interrupt_flag = False
+                    
+                    try:
+                        if isinstance(args, tuple):
+                            result = await self.loop.run_in_executor(None, partial(task, *args))
+                        elif isinstance(args, dict):
+                            result = await self.loop.run_in_executor(None, partial(task, **args))
+                        else:
+                            result = await self.loop.run_in_executor(None, partial(task, args))
+                        
+                        if future:
+                            future.set_result(result)
+                    except Exception as e:
+                        #logger.error(f"Error processing main task: {e}")
+                        logger.error(f"Error occurred in {traceback.format_exc()}")
+                        if future:
+                            future.set_exception(e)
+                    finally:
+                        if self.current_task:
+                            task_list, _ = self._get_queue()
+                            self.queue_message({
+                                "type": "task_completed",
+                                "task_id": task_id,
+                                "completed_at": time.time(),
+                                "queued": task_list,
+                                "current": None,
+                                "sid": self.current_task["sid"],
+                                "args": args,
+                            })
+                            self.current_task = None
+                        self.main_queue.task_done()
+                        self.interrupt_flag = False
+                        
+                except asyncio.TimeoutError:
+                    # Timeout is expected, just continue to check shutdown
+                    continue
+
+        except Exception as e:
+            logger.error(f"Main worker error: {e}")
+        finally:
+            logger.debug("Main worker shutting down")
 
 
     async def _background_worker(self):
-        while True:
-            task, args = await self.background_queue.get()
-            try:
-                if isinstance(args, tuple):
-                    await task(*args)
-                elif isinstance(args, dict):
-                    await task(**args)
-                else:
-                    await task(args)
-            except Exception as e:
-                logger.error(f"Error processing background task: {e}")
-                #logger.error(f"Error occurred in {traceback.format_exc()}")
-            finally:
-                self.background_queue.task_done()
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # Use wait_for with a timeout to check shutdown periodically
+                    queue_item = await asyncio.wait_for(self.background_queue.get(), timeout=1.0)
+                    
+                    # Check for sentinel value (None) indicating shutdown
+                    if queue_item is None:
+                        self.background_queue.task_done()
+                        break
+                        
+                    task, args = queue_item
+                    
+                    try:
+                        if isinstance(args, tuple):
+                            await task(*args)
+                        elif isinstance(args, dict):
+                            await task(**args)
+                        else:
+                            await task(args)
+                    except Exception as e:
+                        logger.error(f"Error processing background task: {e}")
+                        #logger.error(f"Error occurred in {traceback.format_exc()}")
+                    finally:
+                        self.background_queue.task_done()
+                        
+                except asyncio.TimeoutError:
+                    # Timeout is expected, just continue to check shutdown
+                    continue
+
+        except Exception as e:
+            logger.error(f"Background worker error: {e}")
+        finally:
+            logger.debug("Background worker shutting down")
 
 
     """
@@ -641,7 +720,7 @@ class WebServer:
         if width != image.width or height != image.height:
             image = cover(image, width, height, resample='BICUBIC')
         
-        if image.mode == 'RGBA' and format in ['jpeg', 'jpg', 'bmp', 'ico']:
+        if image.mode != 'RGB' and format in ['jpeg', 'jpg', 'bmp', 'ico']:
             image = image.convert('RGB')
 
         bytes = BytesIO()
@@ -658,6 +737,17 @@ class WebServer:
                 'Expires': '0'
             }
         )
+
+    async def local_models(self, request):
+        refresh = request.query.get('refresh', False)
+        path_match = request.query.get('match', "")
+
+        if refresh:
+            modelstore.update_local()
+
+        files = modelstore.get_local_ids(name=path_match)
+
+        return web.json_response(files)
 
     """
     ╭────────────────────────╮
@@ -799,7 +889,12 @@ class WebServer:
         self.node_cache[id]._sid = sid
 
         # *** execute the node ***
-        self.node_cache[id](**args)
+        try:
+            self.node_cache[id](**args)
+        except Exception as e:
+            logger.error(f"Error executing node {id} ({module}.{action})")
+            logger.error(traceback.format_exc())
+            raise e
 
         if not quiet:
             execution_time = time.time() - start_time
@@ -884,6 +979,7 @@ class WebServer:
                 if data_source_id == source_id and data_param_key == output:
                     self.execute_node(id, nodes[id], sid, quiet=True)
 
+
     """
     ╭────────────────╮
        Hugging Face
@@ -891,13 +987,18 @@ class WebServer:
     """
 
     async def hf_cache(self, request):
+        refresh = request.query.get('refresh', False)
+        id = request.match_info.get('id', None)
         class_name = request.query.get('className', None)
-        compact = bool(request.query.get('compact', False))
+        compact = request.query.get('compact', False)
+        return_type = "compact" if compact else "full"
 
-        if class_name:
-            return web.json_response(get_local_model_ids(class_name=class_name))
+        if refresh:
+            modelstore.update_hf()
+        
+        models = modelstore.get_hf_models(id, class_name, return_type)
 
-        return web.json_response(get_local_models(compact=compact))
+        return web.json_response(models)
 
     async def hf_cache_delete(self, request):
         hashes = request.match_info.get('hash').split(',')
@@ -954,7 +1055,11 @@ class WebServer:
         if not sid:
             sid = nanoid.generate(size=10)
         if sid in self.ws_sessions:
-            del self.ws_sessions[sid]
+            # close the connection and remove the old session
+            logger.debug(f"Websocket session {sid} already exists, closing the old session.")
+            #await self.ws_sessions[sid].close()
+            sid = nanoid.generate(size=10)
+            #del self.ws_sessions[sid]
         
         self.ws_sessions[sid] = ws
         logger.debug(f"Websocket connection opened: {sid}")
@@ -1002,7 +1107,7 @@ class WebServer:
 
         for session in sessions:
             try:
-                if session in self.ws_sessions:
+                if session in self.ws_sessions and not self.ws_sessions[session].closed:
                     if isinstance(message, dict):
                         await self.ws_sessions[session].send_json(message)
                     else:
@@ -1012,7 +1117,7 @@ class WebServer:
                 pass
     
     def queue_message(self, message: dict | bytes, sid: list[str] | str = None, exclude: list[str] | str = None):
-        if self.loop.is_running():
+        if self.loop.is_running() and not self._shutdown_event.is_set():
             asyncio.run_coroutine_threadsafe(
                 self.background_queue.put((self.broadcast, (message, sid, exclude))),
                 self.loop

@@ -31,8 +31,8 @@ class Upscaler(NodeBase):
                 return {"output": None}
             hffs = HfFileSystem()
             repo_files = hffs.ls(model_id, detail=False)
-            # return the first file that ends with "safetensors", "pt", "pth", "ckpt" or "pkl"
-            file = next((f for f in repo_files if f.endswith(('.safetensors', '.pt', '.pth', '.ckpt', '.pkl'))), None).split('/')[-1]
+            # return the first model in the list
+            file = next((f for f in repo_files if f.endswith(("safetensors", "pt", "pth", "ckpt", "pkl", "bin"))), None).split('/')[-1]
 
             if not file:
                 logger.error(f"Model {model_id} not found on Hugging Face")
@@ -49,7 +49,7 @@ class Upscaler(NodeBase):
         try:
             model = ModelLoader().load_from_file(model_id).eval()
         except Exception as e:
-            logger.error(f"Error loading Spandrel model {model_id}: {e}")
+            logger.error(f"Error loading Spandrel model {model_id}")
             raise e
 
         self.mm_add(model, priority=0)

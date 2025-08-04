@@ -1,5 +1,6 @@
 from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.huggingface import get_local_model_ids
+from mellon.modelstore import modelstore
 
 MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL']
 
@@ -15,8 +16,8 @@ MODULE_MAP = {
                 "label": "Model",
                 "display": "autocomplete",
                 "type": "string",
+                'options': modelstore.get_hf_ids(class_name="StableDiffusion3Pipeline"),
                 "default": "stabilityai/stable-diffusion-3.5-large",
-                "optionsSource": { "source": "hf_cache", "filter": { "className": "StableDiffusion3Pipeline" } },
                 "fieldOptions": { "noValidation": True }
             },
             "dtype": {
@@ -45,7 +46,7 @@ MODULE_MAP = {
                 'label': 'Model ID',
                 'type': 'string',
                 'default': 'stabilityai/stable-diffusion-3.5-large',
-                'options': get_local_model_ids(class_name="StableDiffusion3Pipeline"),
+                'options': modelstore.get_hf_ids(class_name="StableDiffusion3Pipeline"),
                 'display': 'autocomplete',
                 'fieldOptions': { "noValidation": True, "model_loader": True },
             },
@@ -64,11 +65,8 @@ QUANT_FIELDS = {
     'bnb_type': {
         'label': 'Type',
         'options': ['8bit', '4bit'],
-        'default': '8bit',
+        'default': '4bit',
         'type': 'string',
-        'onChange': {
-            '4bit': ['bnb_double_quant'],
-        },
     },
     'bnb_double_quant': {
         'label': 'Double Quant',
@@ -84,7 +82,7 @@ QUANT_SELECT = {
         'options': { 'none': 'None', 'bnb': 'BitsAndBytes' },
         'default': 'none',
         'onChange': {
-            'bnb': ['bnb_type'],
+            'bnb': ['bnb_type', 'bnb_double_quant'],
         },
     },
 }
