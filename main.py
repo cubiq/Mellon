@@ -6,6 +6,7 @@ import signal
 logger = logging.getLogger('mellon')
 
 from modules import MODULE_MAP
+from mellon.modelstore import modelstore
 from mellon.server import server
 
 # welcome message

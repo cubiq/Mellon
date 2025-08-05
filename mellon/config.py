@@ -78,7 +78,8 @@ class Config:
             'app_root': app_root,
             'work_dir': cfg.get('paths', 'work_dir', fallback=os.path.join(app_root, 'data')),
             'data': cfg.get('paths', 'data', fallback=os.path.join(app_root, 'data')),
-            'upscalers': cfg.get('paths', 'upscalers', fallback=os.path.join(app_root, 'data', 'upscalers')),
+            'models': cfg.get('paths', 'models', fallback=os.path.join(app_root, 'data', 'models')),
+            'upscalers': cfg.get('paths', 'upscalers', fallback=os.path.join(app_root, 'data', 'models', 'upscalers')),
             #'preprocessors': cfg.get('paths', 'preprocessors', fallback=os.path.join(app_root, 'data', 'preprocessors')),
             'temp': cfg.get('paths', 'temp', fallback=os.path.join(app_root, 'data', 'temp')),
         }
@@ -112,6 +113,7 @@ class Config:
 handler = logging.StreamHandler()
 handler.setFormatter(ColorFormatter())
 logger = logging.getLogger('mellon')
+logger.propagate = False
 logger.addHandler(handler)
 
 # Load config

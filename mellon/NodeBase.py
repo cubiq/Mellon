@@ -2,11 +2,13 @@ import logging
 logger = logging.getLogger('mellon')
 from modules import MODULE_MAP
 from mellon.server import server
-from utils.memory_menager import memory_manager, memory_flush
+from mellon.config import CONFIG
+from mellon.modelstore import modelstore
+from utils.memory_menager import memory_manager
 import numpy as np
 import torch
 import sys
-from utils.huggingface import get_local_model_ids
+from huggingface_hub.utils import LocalEntryNotFoundError
 
 def get_module_output(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -30,47 +32,87 @@ def deep_equal(a, b):
         if a.device != b.device or a.dtype != b.dtype or a.shape != b.shape:
             return False
         return torch.equal(a, b)
-    
-    # For numpy arrays, check dtype, shape, and then values.
+
+    # For PIL-like images
+    if hasattr(a, 'tobytes') and callable(a.tobytes):
+        if a.size != b.size or a.mode != b.mode:
+            return False
+        return a.tobytes() == b.tobytes()
+
+    # For numpy arrays
     if isinstance(a, np.ndarray):
         if a.dtype != b.dtype or a.shape != b.shape:
             return False
         return np.array_equal(a, b)
 
-    # For PIL-like images (duck-typing)
-    if hasattr(a, 'getdata') and callable(a.getdata) and hasattr(b, 'getdata') and callable(b.getdata):
-        if a.size != b.size or a.mode != b.mode:
-            return False
-        #return list(a.getdata()) == list(b.getdata())
-        return np.array_equal(np.array(a), np.array(b)) # this should be faster than the above
-
-    # For lists and tuples, check length and then each element recursively.
+    # For lists and tuples, check length and then each element recursively
     if isinstance(a, (list, tuple)):
         if len(a) != len(b):
             return False
         return all(deep_equal(x, y) for x, y in zip(a, b))
-        
-    # For sets, the standard equality check is sufficient.
+
+    # For sets, the standard equality check should be sufficient
     if isinstance(a, set):
         return a == b
 
-    # For dictionaries, check keys and then each value recursively.
+    # For dictionaries, check keys and then each value recursively
     if isinstance(a, dict):
         if set(a.keys()) != set(b.keys()):
             return False
         return all(deep_equal(a[key], b[key]) for key in a)
 
     # 4. Generic object checks
-    # If objects have a 'to_dict' method, compare their dict representations.
     if hasattr(a, 'to_dict') and callable(a.to_dict):
         return deep_equal(a.to_dict(), b.to_dict())
 
-    # As a fallback, compare the objects' __dict__ attributes recursively.
+    # As a fallback, compare the objects' __dict__ attributes recursively
     if hasattr(a, '__dict__'):
         return deep_equal(a.__dict__, b.__dict__)
 
     # 5. Default case: use standard equality for primitives (int, str, etc.)
     return a == b
+
+def recursive_type_cast(value, ttype, key):
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return [recursive_type_cast(v, ttype, key) for v in value]
+    if isinstance(value, dict):
+        return {k: recursive_type_cast(v, ttype, f"{key}.{k}") for k, v in value.items()}
+    if isinstance(value, tuple):
+        return tuple(recursive_type_cast(list(value), ttype, key))
+        #return tuple(recursive_type_cast(v, type, f"{key}.{i}") for i, v in enumerate(value))
+    if isinstance(value, np.ndarray):
+        return np.array(recursive_type_cast(value.tolist(), ttype, key), dtype=value.dtype)
+    
+    try:       
+        if ttype.startswith('int'):
+            if isinstance(value, str) and value.strip() == '':
+                return 0
+            return int(float(value))  # Convert via float first to handle "1.0" -> 1
+        if ttype.startswith('float'):
+            if isinstance(value, str) and value.strip() == '':
+                return 0.0
+            return float(value)
+        if ttype.startswith('str') or ttype.startswith('text'):
+            return str(value or '')
+        if ttype.startswith('bool'):
+            if isinstance(value, str):
+                # Handle string representations of booleans
+                value_lower = value.lower().strip()
+                if value_lower in ('true', '1', 'yes', 'on', 'y'):
+                    return True
+                if value_lower in ('false', '0', 'no', 'off', 'n'):
+                    return False
+                try:
+                    return bool(float(value_lower))
+                except ValueError:
+                    return value
+            return bool(value)
+        return value
+    except Exception:
+        return value
 
 class NodeBase:
     CALLBACK = 'execute'
@@ -117,20 +159,7 @@ class NodeBase:
                     type = self.default_params[key]['type']
                     if isinstance(type, list):
                         type = type[0]
-
-                    if type.startswith('int'):
-                        params[key] = int(value or 0) if not isinstance(value, list) else [int(v) for v in value]
-                    elif type.startswith('float'):
-                        params[key] = float(value or 0) if not isinstance(value, list) else [float(v) for v in value]
-                    elif type.startswith('str') or type.startswith('text'):
-                        if isinstance(value, dict):
-                            params[key] = value
-                        elif isinstance(value, list):
-                            params[key] = [str(v) for v in value]
-                        else:
-                            params[key] = str(value or '')
-                    elif type.startswith('bool'):
-                        params[key] = bool(value) if not isinstance(value, list) else [bool(v) for v in value]
+                    params[key] = recursive_type_cast(value, type, key)
                 
                 if 'options' in self.default_params[key] and not self.default_params[key].get('fieldOptions', {}).get('noValidation', False):
                     options = self.default_params[key]['options']
@@ -143,14 +172,24 @@ class NodeBase:
                             raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
                     else:
                         raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid options format for {key}: {options}")
-            
-        hf_cache_update = False
+        
+        # if we added a model not in the huggingface cache, we set a flag that
+        # later will be used to tell the client to update its local cache
+        update_hf_cache = False
+        update_local_cache = False
         for key in self.default_params:
-            optionsSource = self.default_params[key].get('optionsSource', {})
-            if optionsSource.get('source') == 'hf_cache':
-                local_models = get_local_model_ids()
-                if params[key] not in local_models:
-                    hf_cache_update = True
+            is_modelselect = self.default_params[key].get('display') == 'modelselect'
+            if is_modelselect:
+                if isinstance(params[key], str):
+                    sources = self.default_params[key].get('fieldOptions', { 'sources': ['hub'] }).get('sources', ['hub'])
+                    params[key] = { 'source': sources[0], 'value': params[key] }
+
+                if params[key].get('source') == 'hub':
+                    if not modelstore.is_hf_cached(params[key].get('value')):
+                        update_hf_cache = True
+                elif params[key].get('source') == 'local':
+                    if not modelstore.is_local_cached(params[key].get('value')):
+                        update_local_cache = True
 
         # post processing
         for key in self.default_params:
@@ -178,22 +217,29 @@ class NodeBase:
                 #self.output = {k: None for k in self.output}
                 raise RuntimeError(f"Error executing {self.module_name}.{self.class_name}: {e}")
 
-            if isinstance(output, dict):
+            if output and isinstance(output, dict):
                 # output and self.output keys must be the same
                 if set(output.keys()) != set(self.output.keys()) and not self._skip_params_check:
                     raise ValueError(f"Module {self.module_name}.{self.class_name}: Output keys do not match: {output.keys()} != {self.output.keys()}")
 
                 self.output = output
-            else:
-                if len(self.output) > 1:
-                    raise ValueError(f"Module {self.module_name}.{self.class_name}: Only one output returned, but multiple are expected ({self.output.keys()})")
-                # if only one output is returned, assign it to the first output
-                self.output[next(iter(self.output))] = output
+            # elif output is not None:
+            #     if len(self.output) > 1:
+            #         raise ValueError(f"Module {self.module_name}.{self.class_name}: Only one output returned, but multiple are expected ({self.output.keys()})")
+            #     # if only one output is returned, assign it to the first output
+            #     self.output[next(iter(self.output))] = output
             
-            if hf_cache_update:
-                print(f"HF Cache Update: {self.node_id}")
+            # inform the client that the huggingface cache needs to be updated
+            if update_hf_cache:
+                modelstore.update_hf()
                 server.queue_message({
                     "type": "hf_cache_update",
+                    "node": self.node_id,
+                }, self._sid)
+            if update_local_cache:
+                modelstore.update_local()
+                server.queue_message({
+                    "type": "local_cache_update",
                     "node": self.node_id,
                 }, self._sid)
 
@@ -212,6 +258,38 @@ class NodeBase:
         
         del self.params, self.output
     
+    def graceful_model_loader(self, callback, model_id, config, local_files_only=True):
+        output = None
+        online_status = CONFIG.hf['online_status']
+        if online_status == 'Online':
+            local_files_only = False
+        
+        if hasattr(callback, 'from_pretrained'):
+            callback = callback.from_pretrained
+
+        try:
+            if model_id is None:
+                output = callback(**config, local_files_only=local_files_only)
+            else:
+                output = callback(model_id, **config, local_files_only=local_files_only)
+
+        except (LocalEntryNotFoundError, OSError) as e:
+            if not local_files_only:
+                raise e
+
+            if online_status == 'Offline':
+                logger.error(f"Model {model_id} is not available in offline mode. Consider changing online_status to 'Auto' or 'Online' in the config.ini file.")
+                raise
+
+            logger.warning(f"Model {model_id} not found locally, attempting to download...")
+            output = self.graceful_model_loader(callback, model_id, config, local_files_only=False)
+            modelstore.update_hf()
+        except Exception as e:
+            logger.error(f"Error loading {model_id}: {e}")
+            raise
+        
+        return output
+    
     def pipe_callback(self, pipe, step_index, timestep, callback_kwargs):
         if not self.node_id:
             return
@@ -223,8 +301,10 @@ class NodeBase:
             cutoff_step = int(pipe._num_timesteps * pipe._cfg_cutoff_step)
             if step_index == cutoff_step:
                 pipe._guidance_scale = 0.0
-                callback_kwargs['prompt_embeds'] = callback_kwargs['prompt_embeds'][-1:]
-                callback_kwargs['pooled_prompt_embeds'] = callback_kwargs['pooled_prompt_embeds'][-1:]
+                if 'prompt_embeds' in callback_kwargs:
+                    callback_kwargs['prompt_embeds'] = callback_kwargs['prompt_embeds'][-1:]
+                if 'pooled_prompt_embeds' in callback_kwargs:
+                    callback_kwargs['pooled_prompt_embeds'] = callback_kwargs['pooled_prompt_embeds'][-1:]
         
         progress = int((step_index + 1) / pipe._num_timesteps * 100)
         self.progress(progress)

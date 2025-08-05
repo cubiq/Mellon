@@ -5,14 +5,15 @@ from importlib import import_module
 from typing import Dict, Any, Set
 from types import ModuleType
 logger = logging.getLogger('mellon')
-logger.debug("Loading modules...")
+logger.info("Loading modules...")
 
 # preload common functions
 from utils.huggingface import local_files_only, get_local_model_ids
-from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE
-
+from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE, CPU_DEVICE, IS_CUDA
+from mellon.modelstore import modelstore
 
 MODULE_MAP = {}
+
 def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
     """
     Recursively evaluate an AST node, handling nested structures and resolving
@@ -47,7 +48,19 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
         # If it's a tuple, recursively evaluate its elements
         elif isinstance(node, ast.Tuple):
             return tuple(safe_eval_ast_node_recursive(item, module_obj) for item in node.elts)
-        
+        # If it's a list comprehension, evaluate it
+        elif isinstance(node, ast.ListComp):
+            try:
+                expr = ast.Expression(body=node)
+                ast.fix_missing_locations(expr)
+                
+                # Compile the expression and then evaluate it in the context of the module
+                code = compile(expr, filename="<ast>", mode="eval")
+                return eval(code, module_obj.__dict__)
+            except Exception as e:
+                logger.error(f"Error evaluating list comprehension in module '{module_obj.__name__}': {e}", exc_info=True)
+                return ast.unparse(node) # Fallback to string on error
+
         # If it's a name (e.g., a variable or function name), try to resolve it.
         elif isinstance(node, ast.Name):
             try:
@@ -62,6 +75,17 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
                     # Fall back to returning the name as a string.
                     logger.warning(f"Could not resolve name '{node.id}' in module '{module_obj.__name__}'. Storing as string.")
                     return ast.unparse(node)
+
+        # If it's an attribute access (e.g., obj.attr), resolve the object and get the attribute.
+        elif isinstance(node, ast.Attribute):
+            try:
+                # Recursively evaluate the base of the attribute (the object)
+                value = safe_eval_ast_node_recursive(node.value, module_obj)
+                # Get the attribute from the resolved object
+                return getattr(value, node.attr)
+            except Exception:
+                logger.warning(f"Could not resolve attribute '{node.attr}' on object '{ast.unparse(node.value)}' in module '{module_obj.__name__}'. Storing as string.")
+                return ast.unparse(node)
 
         # If it's a function call, evaluate the function and its arguments
         elif isinstance(node, ast.Call):
@@ -143,10 +167,12 @@ def parse_module_file(module_filepath: str, module_obj: ModuleType, ignore_class
         logger.error(f"Failed to parse {module_filepath}: {e}", exc_info=True)
         return {}
 
+total_nodes = 0
 def parse_module_map(base_path: str) -> None:
     """
     Scans a directory for modules, imports them, and parses them to build the MODULE_MAP.
     """
+    global total_nodes
     for entry in scandir(base_path):
         if entry.is_dir() and not entry.name.startswith(("__", ".")):
             module_name = f"{base_path}.{entry.name}"
@@ -183,11 +209,12 @@ def parse_module_map(base_path: str) -> None:
             if module_content:
                 #MODULE_MAP[module_name] = dict(sorted(module_content.items(), key=lambda item: item[0]))
                 MODULE_MAP[module_name] = module_content
-                logger.info(f"Loaded {len(module_content)} class{'' if len(module_content) == 1 else 'es'} from module '{module_name}'.")
+                total_nodes += len(module_content)
+                logger.debug(f"Loaded {len(module_content)} Node{'' if len(module_content) == 1 else 's'} from '{module_name.split('.', 1)[-1]}'.")
             else:
                 logger.warning(f"Module '{module_name}' could not be parsed or has no NodeBase classes.")
 
 parse_module_map("modules")
 parse_module_map("custom")
 
-logger.info(f"Loaded {len(MODULE_MAP)} modules")
+logger.info(f"Loaded {total_nodes} nodes from {len(MODULE_MAP)} modules.")

@@ -43,7 +43,12 @@ class MemoryManager:
         if model_id is None or model_id not in self.cache:
             return None
         
-        self.cache[model_id]['model'] = self.cache[model_id]['model'].to('cpu')
+        try:
+            self.cache[model_id]['model'] = self.cache[model_id]['model'].to('cpu')
+        except Exception:
+            # should prevent errors with quantized models
+            pass
+        
         self.cache[model_id]['model'] = None
         del self.cache[model_id]
         memory_flush()

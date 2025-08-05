@@ -355,7 +355,7 @@ class SD3Sampler(NodeBase):
 
         def preview_callback(pipe, step_index, timestep, callback_kwargs):           
             latents = callback_kwargs['latents']
-            self.trigger_output("latents_preview", latents)         
+            self.trigger_output("latents_preview", latents)       
             self.pipe_callback(pipe, step_index, timestep, callback_kwargs)
             return callback_kwargs
 

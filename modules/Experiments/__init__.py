@@ -1,7 +1,8 @@
 from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.huggingface import get_local_model_ids
+from mellon.modelstore import modelstore
 
-MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL']
+MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL', 'QwenImage']
 
 MODULE_MAP = {
     "SD3PipelineLoader": {
@@ -15,8 +16,8 @@ MODULE_MAP = {
                 "label": "Model",
                 "display": "autocomplete",
                 "type": "string",
+                'options': modelstore.get_hf_ids(class_name="StableDiffusion3Pipeline"),
                 "default": "stabilityai/stable-diffusion-3.5-large",
-                "optionsSource": { "source": "hf_cache", "filter": { "className": "StableDiffusion3Pipeline" } },
                 "fieldOptions": { "noValidation": True }
             },
             "dtype": {
@@ -45,7 +46,7 @@ MODULE_MAP = {
                 'label': 'Model ID',
                 'type': 'string',
                 'default': 'stabilityai/stable-diffusion-3.5-large',
-                'options': get_local_model_ids(class_name="StableDiffusion3Pipeline"),
+                'options': modelstore.get_hf_ids(class_name="StableDiffusion3Pipeline"),
                 'display': 'autocomplete',
                 'fieldOptions': { "noValidation": True, "model_loader": True },
             },
@@ -59,3 +60,49 @@ MODULE_MAP = {
         },
     },
 }
+
+QUANT_FIELDS = {
+    'bnb_type': {
+        'label': 'Type',
+        'options': ['8bit', '4bit'],
+        'default': '4bit',
+        'type': 'string',
+    },
+    'bnb_double_quant': {
+        'label': 'Double Quant',
+        'type': 'boolean',
+        'default': True,
+    },
+}
+
+QUANT_SELECT = {
+    'quantization': {
+        'label': 'Quantization',
+        'type': 'string',
+        'options': { 'none': 'None', 'bnb': 'BitsAndBytes' },
+        'default': 'none',
+        'onChange': {
+            'bnb': ['bnb_type', 'bnb_double_quant'],
+        },
+    },
+}
+
+PREFERRED_KONTEXT_RESOLUTIONS = [
+    (672, 1568),
+    (688, 1504),
+    (720, 1456),
+    (752, 1392),
+    (800, 1328),
+    (832, 1248),
+    (880, 1184),
+    (944, 1104),
+    (1024, 1024),
+    (1104, 944),
+    (1184, 880),
+    (1248, 832),
+    (1328, 800),
+    (1392, 752),
+    (1456, 720),
+    (1504, 688),
+    (1568, 672),
+]

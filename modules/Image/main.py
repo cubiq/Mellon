@@ -91,8 +91,11 @@ class Preview(NodeBase):
             return {"output": None}
         pipeline = pipeline.vae if hasattr(pipeline, 'vae') else pipeline
         vae = VAEDecode()
-        output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
-        
+        if isinstance(image, list) or isinstance(image, tuple):
+            output = self.mm_exec(lambda: vae.decode(pipeline, image[0], image[1]), device, models=[pipeline])
+        else:
+            output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
+
         return {"output": output}
 
 
