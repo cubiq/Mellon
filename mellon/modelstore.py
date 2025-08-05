@@ -1,4 +1,4 @@
-from utils.huggingface import get_local_models as hf_get_local_models, cached_file_path
+from utils.huggingface import get_local_models as hf_get_local_models, is_file_cached
 from utils.paths import list_files
 from mellon.config import CONFIG
 import re
@@ -108,7 +108,7 @@ class ModelStore:
 
         return False
     
-    def offline_mode(self, id: str):
+    def offline_mode(self, id: str, files: list[str] = []) -> bool:
         if id is None:
             return False
 
@@ -117,13 +117,23 @@ class ModelStore:
         if ONLINE_STATUS == 'Online':
             return False
 
+        # if the id contains a file path add it to the files to check
         if len(id.strip('/').split('/')) > 2:
-            id = id.strip('/').split('/')
-            file = '/'.join(id[2:])
-            id = '/'.join(id[:2])
-            return bool(cached_file_path(id, file))
+            path = id.strip('/').split('/')
+            file = '/'.join(path[2:])
+            id = '/'.join(path[:2])
+            files.append(file)
 
-        return bool(self.is_cached(id))
+        # first check if the repo is cached
+        if not self.is_hf_cached(id):
+            return False
+
+        # then check if the files are cached
+        if files:
+            if not is_file_cached(id, files):
+                return False
+
+        return True
 
 # Initialize the model store
 modelstore = ModelStore()

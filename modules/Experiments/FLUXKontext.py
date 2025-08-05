@@ -2,23 +2,13 @@ import os
 import logging
 logger = logging.getLogger('mellon')
 from mellon.NodeBase import NodeBase
-from mellon.modelstore import modelstore
 from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE, IS_CUDA
-from utils.huggingface import local_files_only, get_model_class
-from huggingface_hub import snapshot_download
+from utils.huggingface import get_model_class
 from mellon.config import CONFIG
 from diffusers import FluxTransformer2DModel, AutoencoderKL
 from modules.Experiments import QUANT_FIELDS, QUANT_SELECT, PREFERRED_KONTEXT_RESOLUTIONS
 from utils.quantization import getBnBConfig
 from utils.image import fit as image_fit
-from transformers import (
-    CLIPTextModel,
-    CLIPTokenizer,
-    T5TokenizerFast,
-    T5EncoderModel,
-    CLIPImageProcessor,
-    CLIPVisionModelWithProjection,
-)
 from utils.memory_menager import memory_flush
 import torch
 import importlib
@@ -26,6 +16,7 @@ import os
 
 HF_TOKEN = CONFIG.hf['token']
 MODELS_DIR = CONFIG.paths['models']
+ONLINE_STATUS = CONFIG.hf['online_status']
 
 class FluxTransformerLoader(NodeBase):
     label = "FLUX Transformer Loader"
@@ -41,7 +32,6 @@ class FluxTransformerLoader(NodeBase):
                 "sources": ['hub'],
                 "filter": {
                     "hub": { "className": ["FluxTransformer2DModel"] },
-                    #"local": { "id": r"FLUX\.1" }
                 },
             },
         },
@@ -58,31 +48,23 @@ class FluxTransformerLoader(NodeBase):
 
     def execute(self, **kwargs):
         model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev'})
-        source = model_id.get('source', 'hub')
-        model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev')
+        model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
 
         dtype = str_to_dtype(kwargs['dtype'])
         quantization = kwargs.get('quantization', 'none')
         bnb_type = kwargs.get('bnb_type', '8bit')
         bnb_double_quant = kwargs.get('bnb_double_quant', True)
 
-        config = {}
+        config = {
+            'torch_dtype': dtype,
+            'token': HF_TOKEN,
+            'subfolder': "transformer"
+        }
         
         if quantization == 'bnb':
             config['quantization_config'] = getBnBConfig(bnb_type, dtype, bnb_double_quant)
-        
-        try:
-            transformer = FluxTransformer2DModel.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                token=HF_TOKEN,
-                subfolder="transformer",
-                local_files_only=modelstore.offline_mode(model_id),
-                **config,
-            )
-        except Exception as e:
-            logger.error(f"Error loading FLUX Transformer")
-            raise e
+
+        transformer = self.graceful_model_loader(FluxTransformer2DModel, model_id, config)
 
         self.mm_add(transformer, priority=3)
 
@@ -103,7 +85,6 @@ class FluxTextEncoderLoader(NodeBase):
                 "sources": ['hub'],
                 "filter": {
                     "hub": { "className": r"^Flux" },
-                    #"local": { "id": r"FLUX\.1" }
                 },
             },
         },
@@ -128,9 +109,10 @@ class FluxTextEncoderLoader(NodeBase):
     }
 
     def execute(self, **kwargs):
+        from transformers import CLIPTextModel, CLIPTokenizer, T5TokenizerFast, T5EncoderModel
+
         model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev'})
-        source = model_id.get('source', 'hub')
-        model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev')
+        model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
         dtype = str_to_dtype(kwargs.get('dtype', 'bfloat16'))
         quantization = kwargs.get('quantization', 'none')
         bnb_type = kwargs.get('bnb_type', '8bit')
@@ -140,17 +122,16 @@ class FluxTextEncoderLoader(NodeBase):
         quant_config = {}
         if not t5 and quantization == 'bnb':
             quant_config = getBnBConfig(bnb_type, dtype, bnb_double_quant)
-        
+
         config = {
             "torch_dtype": dtype,
-            #"local_files_only": modelstore.offline_mode(model_id),
             "token": HF_TOKEN,
         }
 
-        text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", **config)
-        text_encoder_2 = t5 or T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_2", **config, quantization_config=quant_config)
-        tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
-        tokenizer_2 = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_2", **config)
+        text_encoder = self.graceful_model_loader(CLIPTextModel, model_id, {**config, "subfolder": "text_encoder"})
+        text_encoder_2 = t5 or self.graceful_model_loader(T5EncoderModel, model_id, {**config, "subfolder": "text_encoder_2", "quantization_config": quant_config})
+        tokenizer = self.graceful_model_loader(CLIPTokenizer, model_id, {**config, "subfolder": "tokenizer"})
+        tokenizer_2 = self.graceful_model_loader(T5TokenizerFast, model_id, {**config, "subfolder": "tokenizer_2"})
 
         self.mm_add(text_encoder, priority=1)
         if not t5:
@@ -173,7 +154,6 @@ class FluxPipelineLoader(NodeBase):
                 "sources": ['hub'],
                 "filter": {
                     "hub": { "className": r"^Flux" },
-                    #"local": { "id": r"FLUX\.1" }
                 },
             },
         },
@@ -195,17 +175,11 @@ class FluxPipelineLoader(NodeBase):
         transformer = kwargs.get('transformer', None)
         encoders = kwargs.get('encoders', None)
 
-        if not modelstore.is_hf_cached(model_id):
-            # try to ignore the merged file
-            ignore_file = model_id.split('/')[-1].lower() + '.safetensors'
-            try:
-                snapshot_download(repo_id=model_id, token=HF_TOKEN, ignore_patterns=[ignore_file])
-            except Exception as e:
-                logger.error(f"Error downloading snapshot for {model_id}: {e}")
-            finally:
-                modelstore.update_hf()
+        config = {
+            'torch_dtype': dtype,
+            'token': HF_TOKEN,
+        }
 
-        config = {}
         if transformer:
             config['transformer'] = transformer
         if encoders:
@@ -214,16 +188,14 @@ class FluxPipelineLoader(NodeBase):
             config['tokenizer'] = encoders['tokenizer']
             config['tokenizer_2'] = encoders['tokenizer_2']
 
-        offline_mode = modelstore.offline_mode(model_id)
         fluxClass = get_model_class(model_id)
 
+        # the repository is not cached, we infer the class name from the model_id
         if not fluxClass:
-            offline_mode = False
             if 'kontext' in model_id.lower():
                 fluxClass = 'FluxKontextPipeline'
             else:
                 fluxClass = 'FluxPipeline'
-        print(f"Loading FLUX Pipeline with class: {fluxClass} for model {model_id}")
 
         try:
             diffusers_mod = importlib.import_module("diffusers")
@@ -231,16 +203,11 @@ class FluxPipelineLoader(NodeBase):
         except Exception:
             logger.error(f"Error loading Pipeline class {fluxClass} for model {model_id}.")
             return None
-
-        pipeline = FluxPipeline.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            token=HF_TOKEN,
-            local_files_only=offline_mode,
-            **config,
-        )
+        
+        pipeline = self.graceful_model_loader(FluxPipeline, model_id, config)
 
         self.mm_add(pipeline.vae, priority=2)
+
         if not encoders:
             self.mm_add(pipeline.text_encoder, priority=1)
             self.mm_add(pipeline.text_encoder_2, priority=1)
@@ -271,7 +238,7 @@ class FluxTextEncoder(NodeBase):
             diffusers_mod = importlib.import_module("diffusers")
             FluxPipeline = getattr(diffusers_mod, pipelineClass)
         except Exception as e:
-            print(f"Error loading pipeline class {pipelineClass}: {e}")
+            logger.error(f"Error loading pipeline class {pipelineClass}: {e}")
             return None
 
         work_pipe = FluxPipeline.from_pretrained(
@@ -330,6 +297,11 @@ class FluxKontextSampler(NodeBase):
         "device": { "label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST },
 
     }
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self.curr_image = None
+        self.curr_image_latents = None
+
     def execute(self, **kwargs):
         pipeline = kwargs.get('pipeline', None)
         prompt_embeds, pooled_prompt_embeds = kwargs.get('embeds', (None, None))
@@ -345,46 +317,51 @@ class FluxKontextSampler(NodeBase):
         generator = torch.Generator(device=device).manual_seed(seed)
 
         try:
-            pipelineClass = pipeline.__class__.__name__ or 'FluxPipeline'
+            pipelineClass = pipeline.__class__.__name__ or 'FluxKontextPipeline'
             diffusers_mod = importlib.import_module("diffusers")
             FluxPipeline = getattr(diffusers_mod, pipelineClass)
         except Exception as e:
-            print(f"Error loading pipeline class {pipelineClass}: {e}")
+            logger.error(f"Error loading pipeline class {pipelineClass}: {e}")
             return None
 
-        encode_pipe = FluxPipeline.from_pretrained(
-            pipeline.config._name_or_path,
-            text_encoder=None,
-            text_encoder_2=None,
-            tokenizer=None,
-            tokenizer_2=None,
-            transformer=None,
-            vae=pipeline.vae,
-            local_files_only=True,
-        )
+        if self.curr_image is image:
+            image_latents = self.curr_image_latents
+        else:
+            encode_pipe = FluxPipeline.from_pretrained(
+                pipeline.config._name_or_path,
+                text_encoder=None,
+                text_encoder_2=None,
+                tokenizer=None,
+                tokenizer_2=None,
+                transformer=None,
+                vae=pipeline.vae,
+                local_files_only=True,
+            )
 
-        def encode_image(pipe, image, device, generator):
-            dtype = pipe.vae.dtype
-            image = image.convert('RGB')
-            w, h = image.size
-            aspect_ratio = w / h
-            _, ref_w, ref_h = min((abs(aspect_ratio - w / h), w, h) for w, h in PREFERRED_KONTEXT_RESOLUTIONS)
-            image = image_fit(image, ref_w, ref_h, resample='LANCZOS')
-            image = pipe.image_processor.preprocess(image)
-            image = image.to(device, dtype=dtype)
-            image_latents = pipe._encode_vae_image(image, generator)
-            image_latents = image_latents.to('cpu').detach().clone()
-            del pipe, image
-            return image_latents
+            def encode_image(pipe, image, device, generator):
+                dtype = pipe.vae.dtype
+                image = image.convert('RGB')
+                w, h = image.size
+                aspect_ratio = w / h
+                _, ref_w, ref_h = min((abs(aspect_ratio - w / h), w, h) for w, h in PREFERRED_KONTEXT_RESOLUTIONS)
+                image = image_fit(image, ref_w, ref_h, resample='LANCZOS')
+                image = pipe.image_processor.preprocess(image)
+                image = image.to(device, dtype=dtype)
+                image_latents = pipe._encode_vae_image(image, generator)
+                image_latents = image_latents.to('cpu').detach().clone()
+                del pipe, image
+                return image_latents
 
-        image_latents = self.mm_exec(
-            lambda: encode_image(encode_pipe, image, device, generator),
-            device,
-            models=[encode_pipe.vae],
-        )
-        del encode_pipe
+            image_latents = self.mm_exec(
+                lambda: encode_image(encode_pipe, image, device, generator),
+                device,
+                models=[encode_pipe.vae],
+            )
 
-        memory_flush()
+            self.curr_image = image
+            self.curr_image_latents = image_latents
+            del encode_pipe
+            memory_flush()
 
         dummy_vae = AutoencoderKL(
             in_channels=3,
@@ -486,33 +463,22 @@ class NunchakuFluxTransformerLoader(NodeBase):
         model_id = model_id.get('value', 'nunchaku-tech/nunchaku-flux.1-dev')
         dtype = str_to_dtype(kwargs.get('dtype', 'bfloat16'))
         fp16_attn = kwargs.get('fp16_attn', False)
-        local_files_only = False
 
         if source == 'local':
             if not os.path.isabs(model_id):
                 model_id = os.path.join(MODELS_DIR, model_id)
             if not os.path.exists(model_id):
                 raise FileNotFoundError(f"Local model {model_id} not found.")
-            local_files_only = True
         else:
             if not model_id.endswith('.safetensors'):
                 filename = model_id.split('/')[-1].replace('nunchaku-', f"svdq-{get_precision()}_r32-") + '.safetensors'
                 model_id = f"{model_id}/{filename}"
-            local_files_only = modelstore.offline_mode(model_id)
         
-        try:
-            transformer = NunchakuFluxTransformer2dModel.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                local_files_only=local_files_only,
-                token=HF_TOKEN,
-            )
-            if fp16_attn:
-                transformer.set_attention_impl("nunchaku-fp16")
-        except Exception as e:
-            logger.error(f"Error loading Nunchaku Flux Transformer")
-            raise e
-        
+        transformer = self.graceful_model_loader(NunchakuFluxTransformer2dModel, model_id, { "torch_dtype": dtype, "token": HF_TOKEN })
+
+        if fp16_attn and hasattr(transformer, 'set_attention_impl'):
+            transformer.set_attention_impl("nunchaku-fp16")
+
         self.mm_add(transformer, priority=3)
 
         return { "transformer": transformer }
@@ -555,31 +521,19 @@ class NunchakuT5EncoderLoader(NodeBase):
         source = model_id.get('source', 'hub')
         model_id = model_id.get('value', 'nunchaku-tech/nunchaku-t5')
         dtype = str_to_dtype(kwargs.get('dtype', 'bfloat16'))
-        local_files_only = False
 
         if source == 'local':
             if not os.path.isabs(model_id):
                 model_id = os.path.join(MODELS_DIR, model_id)
             if not os.path.exists(model_id):
                 raise FileNotFoundError(f"Local model {model_id} not found.")
-            local_files_only = True
         else:
             if not model_id.endswith('.safetensors'):
                 filename = 'awq-int4-flux.1-t5xxl.safetensors'
                 model_id = f"{model_id}/{filename}"
-            local_files_only = modelstore.offline_mode(model_id)
 
-        try:
-            t5 = NunchakuT5EncoderModel.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                local_files_only=local_files_only,
-                token=HF_TOKEN,
-            )
-        except Exception as e:
-            logger.error(f"Error loading Nunchaku T5 Encoder")
-            raise e
+        t5 = self.graceful_model_loader(NunchakuT5EncoderModel, model_id, { "torch_dtype": dtype, "token": HF_TOKEN })
         
-        self.mm_add(t5, priority=1)
+        self.mm_add(t5, priority=2)
 
         return { "t5": t5 }

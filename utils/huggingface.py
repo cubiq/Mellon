@@ -96,7 +96,6 @@ def get_local_model_ids(id: Optional[str] = None, class_name: Optional[str] | bo
     return local_models
 
 def cached_file_path(repo_id: str, file: str):
-    from huggingface_hub import try_to_load_from_cache
     cache_dir = CONFIG.hf['cache_dir']
     file_path = None
 
@@ -110,6 +109,12 @@ def cached_file_path(repo_id: str, file: str):
         return file_path
     
     return False
+
+def is_file_cached(repo_id: str, file: str | list[str] | tuple[str, ...]) -> bool:
+    if isinstance(file, str):
+        file = [file]
+
+    return all(cached_file_path(repo_id, f) for f in file)
 
 def repo_exists(model_id: str, token: Optional[str] = None):
     token = token or CONFIG.hf['token']
@@ -136,17 +141,20 @@ def list_repo_files(repo_id: str, token: Optional[str] = None):
         logger.error(f'Error listing files for repo {repo_id}: {e}')
         return []
 
-def repo_file_exists(repo_id: str, file: str, token: Optional[str] = None):
+def repo_file_exists(repo_id: str, files: str | list[str] | tuple[str, ...], token: Optional[str] = None) -> bool | None:
     token = token or CONFIG.hf['token']
-    if not repo_id or not file:
+    if not repo_id or not files:
         logger.error('Repo ID and file name are required to check if file exists')
-        return False
+        return None
+
+    if isinstance(files, str):
+        files = [files]
 
     try:
-        files = list_repo_files(repo_id=repo_id, token=token)
-        return any(f for f in files if f == file)
+        repo_files = list_repo_files(repo_id=repo_id, token=token)
+        return all(file in repo_files for file in files)
     except Exception as e:
-        logger.error(f'Error checking if file {file} exists in repo {repo_id}: {e}')
+        logger.error(f'Error checking if file {files} exists in repo {repo_id}: {e}')
         return False
 
 def list_repo_models(repo_id: str, token: Optional[str] = None):
@@ -172,9 +180,9 @@ def get_model_class(model_id: str):
                         data = json.load(f)
                     if '_class_name' in data:
                         return data['_class_name']
-                except (json.JSONDecodeError, IOError) as e:
+                except (json.JSONDecodeError, IOError):
                     continue
-        except Exception as e:
+        except Exception:
             continue
 
     return None

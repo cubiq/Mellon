@@ -2,11 +2,13 @@ import logging
 logger = logging.getLogger('mellon')
 from modules import MODULE_MAP
 from mellon.server import server
+from mellon.config import CONFIG
+from mellon.modelstore import modelstore
 from utils.memory_menager import memory_manager
 import numpy as np
 import torch
 import sys
-from mellon.modelstore import modelstore
+from huggingface_hub.utils import LocalEntryNotFoundError
 
 def get_module_output(module_name, class_name):
     params = MODULE_MAP[module_name][class_name]['params'] if module_name in MODULE_MAP and class_name in MODULE_MAP[module_name] else {}
@@ -255,6 +257,38 @@ class NodeBase:
             pass
         
         del self.params, self.output
+    
+    def graceful_model_loader(self, callback, model_id, config, local_files_only=True):
+        output = None
+        online_status = CONFIG.hf['online_status']
+        if online_status == 'Online':
+            local_files_only = False
+        
+        if hasattr(callback, 'from_pretrained'):
+            callback = callback.from_pretrained
+
+        try:
+            if model_id is None:
+                output = callback(**config, local_files_only=local_files_only)
+            else:
+                output = callback(model_id, **config, local_files_only=local_files_only)
+
+        except (LocalEntryNotFoundError, OSError) as e:
+            if not local_files_only:
+                raise e
+
+            if online_status == 'Offline':
+                logger.error(f"Model {model_id} is not available in offline mode. Consider changing online_status to 'Auto' or 'Online' in the config.ini file.")
+                raise
+
+            logger.warning(f"Model {model_id} not found locally, attempting to download...")
+            output = self.graceful_model_loader(callback, model_id, config, local_files_only=False)
+            modelstore.update_hf()
+        except Exception as e:
+            logger.error(f"Error loading {model_id}: {e}")
+            raise
+        
+        return output
     
     def pipe_callback(self, pipe, step_index, timestep, callback_kwargs):
         if not self.node_id:

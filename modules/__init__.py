@@ -76,6 +76,17 @@ def safe_eval_ast_node_recursive(node: ast.AST, module_obj: ModuleType) -> Any:
                     logger.warning(f"Could not resolve name '{node.id}' in module '{module_obj.__name__}'. Storing as string.")
                     return ast.unparse(node)
 
+        # If it's an attribute access (e.g., obj.attr), resolve the object and get the attribute.
+        elif isinstance(node, ast.Attribute):
+            try:
+                # Recursively evaluate the base of the attribute (the object)
+                value = safe_eval_ast_node_recursive(node.value, module_obj)
+                # Get the attribute from the resolved object
+                return getattr(value, node.attr)
+            except Exception:
+                logger.warning(f"Could not resolve attribute '{node.attr}' on object '{ast.unparse(node.value)}' in module '{module_obj.__name__}'. Storing as string.")
+                return ast.unparse(node)
+
         # If it's a function call, evaluate the function and its arguments
         elif isinstance(node, ast.Call):
             # 1. Resolve the callable (e.g., the function object)
