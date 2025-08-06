@@ -4,7 +4,6 @@ import torch
 from diffusers import ComponentSpec, ModularPipeline
 
 from mellon.NodeBase import NodeBase
-from utils.huggingface import get_local_model_ids
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
@@ -76,10 +75,17 @@ class ModelsLoader(NodeBase):
     params = {
         "repo_id": {
             "label": "Repository ID",
-            "display": "autocomplete",
+            "display": "modelselect",
             "type": "string",
-            "options": get_local_model_ids(class_name="StableDiffusionXLModularPipeline"),
-            "fieldOptions": {"noValidation": True},
+            "default": {"source": "hub", "value": "OzzyGT/base-modular-loader"},
+            "fieldOptions": {
+                "noValidation": True,
+                "sources": ["hub", "local"],
+                "filter": {
+                    "hub": {"className": ["StableDiffusionXLModularPipeline"]},
+                    "local": {"className": ["StableDiffusionXLModularPipeline"]},
+                },
+            },
         },
         "dtype": {
             "label": "dtype",
@@ -107,18 +113,14 @@ class ModelsLoader(NodeBase):
         self.loader = None
         super().__del__()
 
-    def __call__(self, **kwargs):
-        self._old_params = self.params.copy()
-        return super().__call__(**kwargs)
-
     def execute(self, repo_id, device, dtype, unet=None, vae=None):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
-            old_params: {self._old_params}
-            new params:
             - repo_id: {repo_id}
             - dtype: {dtype}
             - device: {device}
+            - unet: {unet}
+            - vae: {vae}
         """)
 
         components_to_update = {
@@ -127,7 +129,15 @@ class ModelsLoader(NodeBase):
         }
         components_to_update = {k: v for k, v in components_to_update.items() if v is not None}
 
-        self.loader = ModularPipeline.from_pretrained(repo_id, components_manager=components, collection=self.node_id)
+        if isinstance(repo_id, dict):
+            real_repo_id = repo_id.get("value", repo_id)
+            source = repo_id.get("source", "hub")  # TODO: do something when is local?
+        else:
+            real_repo_id = ""
+
+        self.loader = ModularPipeline.from_pretrained(
+            real_repo_id, components_manager=components, collection=self.node_id
+        )
 
         # YIYI/Alvaro TODO: do we need to limit to these components?
         ALL_COMPONENTS = ["unet", "vae", "scheduler", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
