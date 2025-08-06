@@ -2,7 +2,7 @@ from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.huggingface import get_local_model_ids
 from mellon.modelstore import modelstore
 
-MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL', 'QwenImage']
+MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL']
 
 MODULE_MAP = {
     "SD3PipelineLoader": {
