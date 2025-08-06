@@ -51,13 +51,13 @@ def get_local_models(compact: bool = False):
                             try:
                                 with open(config, 'r') as f:
                                     config_data = json.load(f)
-                                if '_class_name' in config_data and config_data['_class_name'] not in model['class_names']:
+                                if '_class_name' in config_data and config_data['_class_name'] is not None and config_data['_class_name'] not in model['class_names']:
                                     model['class_names'].append(str(config_data['_class_name']))
                                 # TODO: handle more properties
                                 # props = ['architectures', 'feature_extractor', 'image_encoder', 'scheduler', 'text_encoder', 'text_encoder_2', 'text_encoder_3', 'tokenizer', 'tokenizer_2', 'tokenizer_3', 'unet', 'transformer', 'vae']
-                                if 'architectures' in config_data:
+                                if 'architectures' in config_data and isinstance(config_data['architectures'], list):
                                     for arch in config_data['architectures']:
-                                        if arch not in model['class_names']:
+                                        if arch is not None and arch not in model['class_names']:
                                             model['class_names'].append(str(arch))
                             except (json.JSONDecodeError, IOError, TypeError) as e:
                                 logger.debug(f'Error loading config file {config}: {e}')
