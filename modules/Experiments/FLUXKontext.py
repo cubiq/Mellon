@@ -73,7 +73,6 @@ class FluxTransformerLoader(NodeBase):
 class FluxTextEncoderLoader(NodeBase):
     label = "FLUX Text Encoders Loader"
     category = "loader"
-    resizeable = True
     params = {
         "model_id": {
             "label": "Model",
@@ -220,6 +219,7 @@ class FluxPipelineLoader(NodeBase):
 class FluxTextEncoder(NodeBase):
     label = "FLUX Text Encoder"
     category = "embedding"
+    resizable = True
     params = {
         "pipeline": { "label": "FLUX Pipeline", "display": "input", "type": ["pipeline", "FluxTextEncoders"] },
         "embeds": { "label": "Embeddings", "display": "output", "type": "embedding" },
