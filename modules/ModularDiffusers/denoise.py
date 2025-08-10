@@ -4,7 +4,8 @@ from typing import Any, List, Tuple
 import torch
 from diffusers import ComponentsManager
 from diffusers.modular_pipelines import BlockState, InputParam, PipelineBlock, SequentialPipelineBlocks
-from diffusers.modular_pipelines.stable_diffusion_xl import ALL_BLOCKS
+from diffusers.modular_pipelines.stable_diffusion_xl import AUTO_BLOCKS
+from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 from mellon.NodeBase import NodeBase
 
@@ -29,12 +30,26 @@ class PreviewBlock(PipelineBlock):
         return components, block_state
 
 
-t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["text2img"])
+# use auto blocks to make the pipeline conditional to the inputs
+t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(AUTO_BLOCKS)
+
+# since we already encoded the prompts, remove this block
 text_blocks = t2i_blocks.sub_blocks.pop("text_encoder")
+
+# we're going to decode the latents later, remove this block too
 decoder_blocks = t2i_blocks.sub_blocks.pop("decode")
 
+# new block so we can preview the generation
 preview_block = PreviewBlock()
-t2i_blocks.sub_blocks["denoise"].sub_blocks.insert("preview_block", preview_block, 3)
+
+# insert the preview block after the end of all the auto denoiser sub_blocks
+for sub_blocks_name, sub_blocks in t2i_blocks.sub_blocks["denoise"].sub_blocks.items():
+    if sub_blocks_name == "controlnet_denoise":
+        # this case is special, it has an additional level of sub_blocks
+        sub_blocks.sub_blocks["inpaint_controlnet_denoise"].sub_blocks.insert("preview_block", preview_block, 3)
+        sub_blocks.sub_blocks["controlnet_denoise"].sub_blocks.insert("preview_block", preview_block, 3)
+    else:
+        sub_blocks.sub_blocks.insert("preview_block", preview_block, 3)
 
 
 class Denoise(NodeBase):
@@ -42,7 +57,11 @@ class Denoise(NodeBase):
     category = "sampler"
     resizable = True
     params = {
-        "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
+        "unet": {
+            "label": "Unet",
+            "display": "input",
+            "type": "diffusers_auto_model",
+        },
         "scheduler": {"label": "Scheduler", "display": "input", "type": "scheduler"},
         "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
         "latents": {"label": "Latents", "type": "latents", "display": "output"},
@@ -73,6 +92,11 @@ class Denoise(NodeBase):
             "type": "guider",
             "onChange": {False: ["guidance_scale"], True: []},
         },
+        "controlnet": {
+            "label": "Controlnet",
+            "type": "controlnet",
+            "display": "input",
+        },
     }
 
     def __init__(self, node_id=None):
@@ -80,7 +104,17 @@ class Denoise(NodeBase):
         self._denoise_node = t2i_blocks.init_pipeline(components_manager=components)
 
     def execute(
-        self, unet, scheduler, width, height, embeddings, seed, num_inference_steps, guidance_scale, guider=None
+        self,
+        unet,
+        scheduler,
+        width,
+        height,
+        embeddings,
+        seed,
+        num_inference_steps,
+        guidance_scale,
+        guider=None,
+        controlnet=None,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
@@ -98,12 +132,33 @@ class Denoise(NodeBase):
 
         generator = torch.Generator(device="cuda").manual_seed(seed)
 
+        denoise_kwargs = {
+            **embeddings,
+            "num_inference_steps": num_inference_steps,
+            "generator": generator,
+            "width": width,
+            "height": height,
+            "output": "latents",
+        }
+
         if guider is None:
             guider_spec = self._denoise_node.get_component_spec("guider")
             guider_spec.config["guidance_scale"] = guidance_scale
             self._denoise_node.update_components(guider=guider_spec)
         else:
             self._denoise_node.update_components(guider=guider)
+
+        if controlnet is not None:
+            denoise_kwargs.update(**controlnet["controlnet_inputs"])
+
+            model_ids = controlnet["controlnet_model"]["model_id"]
+            if isinstance(model_ids, list):
+                controlnet_components = [components.get_one(model_id) for model_id in model_ids]
+                controlnet_components = MultiControlNetModel(controlnet_components)
+            else:
+                controlnet_components = components.get_one(model_ids)
+
+            self._denoise_node.update_components(controlnet=controlnet_components)
 
         def preview_callback(latents, step_index: int, scheduler_order: int):
             if (step_index + 1) % scheduler_order == 0:
@@ -112,12 +167,7 @@ class Denoise(NodeBase):
                 self.progress(progress)
 
         latents = self._denoise_node(
-            **embeddings,
-            num_inference_steps=num_inference_steps,
-            width=width,
-            height=height,
-            generator=generator,
-            output="latents",
+            **denoise_kwargs,
             callback=preview_callback,
         )
 

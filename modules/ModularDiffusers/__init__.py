@@ -3,4 +3,4 @@ from diffusers import ComponentsManager
 
 components = ComponentsManager()
 
-MODULE_PARSE = ["denoise", "embeddings", "guiders", "latents", "loaders", "schedulers"]
+MODULE_PARSE = ["controlnet", "denoise", "embeddings", "guiders", "latents", "loaders", "schedulers"]

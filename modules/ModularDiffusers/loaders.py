@@ -28,8 +28,29 @@ class AutoModelLoader(NodeBase):
     category = "loader"
     resizable = True
     params = {
-        "name": {"label": "Name", "type": "string"},
-        "model_id": {"label": "Model ID", "type": "string"},
+        "name": {
+            "label": "Name",
+            "type": "string",
+            "options": {
+                "UNet2DConditionModel": "UNet",
+                "AutoencoderKL": "VAE",
+                "ControlNetModel": "ControlNet",
+            },
+            "default": "UNet2DConditionModel",
+        },
+        "model_id": {
+            "label": "Model ID",
+            "display": "modelselect",
+            "type": "string",
+            "default": "",
+            "fieldOptions": {
+                "noValidation": True,
+                "sources": ["hub"],
+                "filter": {
+                    "hub": {"className": ["UNet2DConditionModel", "AutoencoderKL", "ControlNetModel"]},
+                },
+            },
+        },
         "dtype": {
             "label": "dtype",
             "options": ["float32", "float16", "bfloat16"],
@@ -59,7 +80,13 @@ class AutoModelLoader(NodeBase):
         variant = None if variant == "" else variant
         subfolder = None if subfolder == "" else subfolder
 
-        spec = ComponentSpec(name=name, repo=model_id, subfolder=subfolder, variant=variant)
+        if isinstance(model_id, dict):
+            real_model_id = model_id.get("value", model_id)
+            source = model_id.get("source", "hub")  # TODO: do something when is local?
+        else:
+            real_model_id = ""
+
+        spec = ComponentSpec(name=name, repo=real_model_id, subfolder=subfolder, variant=variant)
         model = spec.load(torch_dtype=dtype)
         comp_id = components.add(name, model, collection=self.node_id)
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
