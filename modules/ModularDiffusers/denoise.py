@@ -3,9 +3,9 @@ from typing import Any, List, Tuple
 
 import torch
 from diffusers import ComponentsManager
+from diffusers.models.controlnets.multicontrolnet import MultiControlNetModel
 from diffusers.modular_pipelines import BlockState, InputParam, PipelineBlock, SequentialPipelineBlocks
 from diffusers.modular_pipelines.stable_diffusion_xl import AUTO_BLOCKS
-from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 from mellon.NodeBase import NodeBase
 
@@ -153,6 +153,7 @@ class Denoise(NodeBase):
 
             model_ids = controlnet["controlnet_model"]["model_id"]
             if isinstance(model_ids, list):
+                # TODO: this is not working yet
                 controlnet_components = [components.get_one(model_id) for model_id in model_ids]
                 controlnet_components = MultiControlNetModel(controlnet_components)
             else:
