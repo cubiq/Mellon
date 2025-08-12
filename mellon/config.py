@@ -35,6 +35,7 @@ class ColorFormatter(logging.Formatter):
 class Config:
     def __init__(self):
         cfg = configparser.ConfigParser()
+        cfg.optionxform = str  # disable lowercasing of keys
         cfg.read('config.ini')
         app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -105,9 +106,11 @@ class Config:
             if not os.path.exists(self.paths[path]) and path != 'work_dir':
                 os.makedirs(self.paths[path])
 
+        # Sets the environment variables
         self.environ = cfg['environ'] if 'environ' in cfg else {}
         for key, value in self.environ.items():
-            self.environ[key] = cfg.get('environ', key, fallback=None)
+            self.environ[key] = value or ''
+            os.environ[key] = value or ''
 
 # Create logger
 handler = logging.StreamHandler()
@@ -121,3 +124,4 @@ CONFIG = Config()
 
 # Set logger level
 logger.setLevel(CONFIG.log['level'])
+

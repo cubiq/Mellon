@@ -166,10 +166,12 @@ class NodeBase:
                     value_list = [value] if not isinstance(value, list) else value
                     if isinstance(options, list):
                         if any(v not in options for v in value_list):
-                            raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
+                            params[key] = []
+                            #raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
                     elif isinstance(options, dict):
                         if any(v not in options.keys() for v in value_list):
-                            raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
+                            params[key] = {}
+                            #raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid value for {key}: {value} (options: {options})")
                     else:
                         raise ValueError(f"Module {self.module_name}.{self.class_name}: Invalid options format for {key}: {options}")
         
@@ -281,7 +283,7 @@ class NodeBase:
                 logger.error(f"Model {model_id} is not available in offline mode. Consider changing online_status to 'Auto' or 'Online' in the config.ini file.")
                 raise
 
-            logger.warning(f"Model {model_id} not found locally, attempting to download...")
+            logger.info(f"Model {model_id} not found locally, attempting to download...")
             output = self.graceful_model_loader(callback, model_id, config, local_files_only=False)
             modelstore.update_hf()
         except Exception as e:

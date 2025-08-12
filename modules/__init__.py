@@ -121,10 +121,11 @@ def parse_node_class(node: ast.ClassDef, module_obj: ModuleType) -> Dict[str, An
     Requires the live module object to resolve function references.
     """
     module_def = {
+        "type": "custom",
         "label": None,
-        "category": None,
-        "description": None,
-        "resizable": None,
+        "category": 'default',
+        "description": '',
+        "resizable": False,
         "skipParamsCheck": False,
         "style": {},
         "params": {},

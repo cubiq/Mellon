@@ -453,14 +453,15 @@ class WebServer:
                     'label': values.get('label', f"{module}: {action}"),
                     'category': values.get('category', 'default'),
                     'description': values.get('description', ''),
-                    'style': values.get('style', ''),
                     'resizable': values.get('resizable', False),
+                    'skipParamsCheck': values.get('skipParamsCheck', False),
+                    'style': values.get('style', ''),
+                    'params': params,
                     'time': [0,0,0],
                     'memory': [0,0,0],
                     'cache': False,
-                    'params': params
                 }
-        
+
         return web.json_response({
             'instance': self.instance,
             'nodes': output
@@ -846,7 +847,7 @@ class WebServer:
             data_param_key = params[p].get('sourceKey')
 
             # the field is a UI element, used mostly to display the data in the UI
-            if 'display' in params[p] and params[p]['display'] in ['ui_text', 'ui_image', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
+            if 'display' in params[p] and params[p]['display'] in ['ui_group', 'ui_text', 'ui_image', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
                 ui_fields[p] = data_param_key if data_param_key else None
 
             # the field is an input that gets its value from an output of another node
@@ -921,8 +922,8 @@ class WebServer:
         for ui_key, data_key in ui_fields.items():           
             message = None
 
-            # skip for button fields
-            if self.modules[module][action]['params'][ui_key].get('display') == 'ui_button':
+            # skip for button and group fields
+            if self.modules[module][action]['params'][ui_key].get('display') in ['ui_button', 'ui_group']:
                 continue
 
             # if the data key is an output, get the value from the output otherwise from the params

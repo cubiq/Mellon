@@ -1,0 +1,6 @@
+bitsandbytes
+dfloat11[cuda12]
+gguf
+kernels
+optimum-quanto
+torchao
