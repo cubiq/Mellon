@@ -7,12 +7,13 @@ from utils.huggingface import get_model_class
 from mellon.config import CONFIG
 from diffusers import FluxTransformer2DModel, AutoencoderKL
 from modules.Experiments import QUANT_FIELDS, QUANT_SELECT, PREFERRED_KONTEXT_RESOLUTIONS
-from utils.quantization import getBnBConfig
+from utils.quantization import getQuantizationConfig
 from utils.image import fit as image_fit
 from utils.memory_menager import memory_flush
 import torch
 import importlib
 import os
+from .flux_layers import FLUX_LAYERS
 
 HF_TOKEN = CONFIG.hf['token']
 MODELS_DIR = CONFIG.paths['models']
@@ -21,6 +22,8 @@ ONLINE_STATUS = CONFIG.hf['online_status']
 class FluxTransformerLoader(NodeBase):
     label = "FLUX Transformer Loader"
     category = "loader"
+    style = { "minWidth": 300 }
+    resizable = True
     params = {
         "model_id": {
             "label": "Model",
@@ -29,9 +32,10 @@ class FluxTransformerLoader(NodeBase):
             "default": { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev' },
             "fieldOptions": {
                 "noValidation": True,
-                "sources": ['hub'],
+                "sources": ['hub', 'local'],
                 "filter": {
                     "hub": { "className": ["FluxTransformer2DModel"] },
+                    "local": { "id": r"flux" },
                 },
             },
         },
@@ -43,6 +47,44 @@ class FluxTransformerLoader(NodeBase):
         },
         **QUANT_SELECT,
         **QUANT_FIELDS,
+        "exclude_layers": {
+            "description": "Exclude layers from the quantization.",
+            "label": "Exclude Layers",
+            "display": "autocomplete",
+            "default": "proj_out",
+            "options": FLUX_LAYERS,
+            "fieldOptions": {
+                "multiple": True,
+                "disableCloseOnSelect": True
+            }
+        },
+        "fuse_qkv": {
+            "description": "Improve performance at the cost of increased memory usage.",
+            "label": "Fuse QKV projections",
+            "type": "boolean",
+            "default": False,
+        },
+        "compile": {
+            "description": "Use Torch to compile the model for improved performance. Works only on supported platforms.",
+            "label": "Compile",
+            "type": "boolean",
+            "default": False,
+            "onChange": {
+                True: ['compile_mode', 'compile_fullgraph'],
+                False: []
+            }
+        },
+        "compile_mode": {
+            "label": "Mode",
+            "type": "string",
+            "default": "max-autotune",
+            "options": ['default', 'reduce-overhead', 'max-autotune', 'max-autotune-no-cudagraphs'],
+        },
+        "compile_fullgraph": {
+            "label": "Full Graph",
+            "type": "boolean",
+            "default": True,
+        },
         "transformer": { "label": "Transformer", "display": "output", "type": "FluxTransformer2DModel" },
     }
 
@@ -51,20 +93,46 @@ class FluxTransformerLoader(NodeBase):
         model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
 
         dtype = str_to_dtype(kwargs['dtype'])
+
         quantization = kwargs.get('quantization', 'none')
-        bnb_type = kwargs.get('bnb_type', '8bit')
-        bnb_double_quant = kwargs.get('bnb_double_quant', True)
+        quantization = None if quantization == 'none' else quantization
+        quantization = 'gguf' if model_id.lower().endswith('.gguf') else quantization
+
+        fuse_qkv = kwargs.get('fuse_qkv', False)
+
+        compile = kwargs.get('compile', False)
+        compile_mode = kwargs.get('compile_mode', 'default')
+        compile_fullgraph = kwargs.get('compile_fullgraph', False)
 
         config = {
             'torch_dtype': dtype,
             'token': HF_TOKEN,
             'subfolder': "transformer"
         }
-        
-        if quantization == 'bnb':
-            config['quantization_config'] = getBnBConfig(bnb_type, dtype, bnb_double_quant)
 
-        transformer = self.graceful_model_loader(FluxTransformer2DModel, model_id, config)
+        loaderCallback = FluxTransformer2DModel.from_pretrained
+        if quantization == 'gguf':
+            from diffusers import GGUFQuantizationConfig
+            config['quantization_config'] = GGUFQuantizationConfig(compute_dtype=dtype)
+            loaderCallback = FluxTransformer2DModel.from_single_file
+            if 'kontext' in model_id.lower():
+                # workaround for an issue with GGUF Kontext models not having the correct in_channels
+                # https://github.com/huggingface/diffusers/issues/11839
+                config['in_channels'] = 64
+        elif quantization is not None:
+            config['quantization_config'] = getQuantizationConfig(quantization, **kwargs)
+
+        transformer = self.graceful_model_loader(loaderCallback, model_id, config)
+
+        # for name, module in transformer.named_modules():
+        #     with open("transformer_modules.txt", "a") as f:
+        #         f.write(f'"{name}",\n')
+
+        if fuse_qkv and hasattr(transformer, 'fuse_qkv_projections'):
+            transformer.fuse_qkv_projections()
+
+        if compile:
+            transformer = torch.compile(transformer, mode=compile_mode, fullgraph=compile_fullgraph)
 
         self.mm_add(transformer, priority=3)
 
@@ -114,13 +182,13 @@ class FluxTextEncoderLoader(NodeBase):
         model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
         dtype = str_to_dtype(kwargs.get('dtype', 'bfloat16'))
         quantization = kwargs.get('quantization', 'none')
-        bnb_type = kwargs.get('bnb_type', '8bit')
-        bnb_double_quant = kwargs.get('bnb_double_quant', True)
+        quantization = None if quantization == 'none' else quantization
+
         t5 = kwargs.get('t5', None)
 
         quant_config = {}
-        if not t5 and quantization == 'bnb':
-            quant_config = getBnBConfig(bnb_type, dtype, bnb_double_quant)
+        if not t5 and quantization is not None:
+            quant_config = getQuantizationConfig(quantization, **kwargs)
 
         config = {
             "torch_dtype": dtype,
@@ -170,7 +238,7 @@ class FluxPipelineLoader(NodeBase):
         model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev'})
         source = model_id.get('source', 'hub')
         model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
-        dtype = str_to_dtype(kwargs['dtype'])       
+        dtype = str_to_dtype(kwargs['dtype'])
         transformer = kwargs.get('transformer', None)
         encoders = kwargs.get('encoders', None)
 
@@ -202,7 +270,7 @@ class FluxPipelineLoader(NodeBase):
         except Exception:
             logger.error(f"Error loading Pipeline class {fluxClass} for model {model_id}.")
             return None
-        
+
         pipeline = self.graceful_model_loader(FluxPipeline, model_id, config)
 
         self.mm_add(pipeline.vae, priority=2)
@@ -313,7 +381,7 @@ class FluxKontextSampler(NodeBase):
         seed = kwargs.get('seed', 0)
         steps = kwargs.get('steps', 25)
         image = image[0] if isinstance(image, list) else image
-        
+
         generator = torch.Generator(device=device).manual_seed(seed)
 
         try:
@@ -473,7 +541,7 @@ class NunchakuFluxTransformerLoader(NodeBase):
             if not model_id.endswith('.safetensors'):
                 filename = model_id.split('/')[-1].replace('nunchaku-', f"svdq-{get_precision()}_r32-") + '.safetensors'
                 model_id = f"{model_id}/{filename}"
-        
+
         transformer = self.graceful_model_loader(NunchakuFluxTransformer2dModel, model_id, { "torch_dtype": dtype, "token": HF_TOKEN })
 
         if fp16_attn and hasattr(transformer, 'set_attention_impl'):
@@ -533,7 +601,7 @@ class NunchakuT5EncoderLoader(NodeBase):
                 model_id = f"{model_id}/{filename}"
 
         t5 = self.graceful_model_loader(NunchakuT5EncoderModel, model_id, { "torch_dtype": dtype, "token": HF_TOKEN })
-        
+
         self.mm_add(t5, priority=2)
 
         return { "t5": t5 }

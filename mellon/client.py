@@ -246,7 +246,7 @@ class Client:
         graph['sid'] = self.sid
             
         return await self._make_request('POST', '/graph', json=graph)
-    
+
     """
     ╭───────────────╮
         Websocket    
@@ -310,3 +310,79 @@ class ClientSync:
     
     def queue_graph(self, graph: Dict) -> Dict:
         return self._sync_wrapper(Client.queue_graph, graph)
+
+class Graph:
+    def __init__(self, graph: Dict | str = None):
+        self.graph = {}
+        if isinstance(graph, str):
+            self.load(graph)
+        elif isinstance(graph, dict):
+            self.graph = graph
+
+    def get_graph(self) -> Dict:
+        return self.graph
+    
+    def load(self, graph: Dict | str) -> Dict:
+        if isinstance(graph, str):
+            try:
+                with open(graph, "r") as f:
+                    self.graph = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading graph from file {graph}: {e}")
+                raise
+        elif isinstance(graph, dict):
+            self.graph = graph
+        else:
+            raise ValueError("Graph must be a dictionary or a path to a JSON file.")
+
+        return self.graph
+    
+    def find_node(self, node_id: Optional[str] = None, module: Optional[str] = None, action: Optional[str] = None) -> list:
+        nodes = self.graph.get('nodes', {})
+        results = []
+
+        if node_id:
+            if node_id in nodes:
+                node = nodes[node_id].copy()
+                node['id'] = node_id
+                return [node]
+            else:
+                return []
+
+        if not module and not action:
+            return []
+
+        for nid, node_data in nodes.items():
+            if module is not None and not module.startswith(('modules.', 'custom.')):
+                module = f"modules.{module}"
+
+            match_module = (not module) or (node_data.get('module') == module)
+            match_action = (not action) or (node_data.get('action') == action)
+            
+            if match_module and match_action:
+                node = node_data.copy()
+                node['id'] = nid
+                results.append(node)
+                
+        return results
+    
+    def update_value(self, node_id: str, param_key: str, new_value: Any) -> Dict:
+        node = self.graph.get('nodes', {}).get(node_id)
+        if not node:
+            logger.warning(f"Node with id '{node_id}' not found in graph.")
+            return
+
+        param = node.get('params', {}).get(param_key)
+        if param is None:
+            logger.warning(f"Param '{param_key}' not found in node '{node_id}'.")
+            return
+
+        if 'value' in param:
+            param['value'] = new_value
+        elif not param: # is an empty dict {}
+            param.update({'value': new_value})
+        else:
+            logger.warning(f"Cannot update param '{param_key}' in node '{node_id}': 'value' key is missing and dict is not empty.")
+
+        return self.graph
+

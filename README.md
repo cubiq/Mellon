@@ -53,16 +53,10 @@ Remember you need `python3.x-devel` installed on your system to compile from sou
 
 ### Quantization
 
-Quantization often requires additional packages.
+Quantization often requires additional packages. Check the `requirements_quant.txt` file for a list of available quantizations. If you want to install them all execute:
 
-**[BitsandBytes](https://github.com/bitsandbytes-foundation/bitsandbytes)**
 ```bash
-pip install bitsandbytes
-```
-
-**[DFloat11](https://github.com/LeanModels/DFloat11)**
-```
-pip install dfloat11[cuda12]
+pip install -r requirements_quant.txt
 ```
 
 For **[Nunchaku](https://github.com/nunchaku-tech/nunchaku)** follow the installation [instructions](https://nunchaku.tech/docs/nunchaku/installation/installation.html) for your platform.
