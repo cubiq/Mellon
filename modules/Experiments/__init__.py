@@ -3,6 +3,10 @@ from utils.huggingface import get_local_model_ids
 from mellon.modelstore import modelstore
 from .flux_layers import FLUX_LAYERS
 
+def str_to_none(value, params):
+    none_values = ['none', 'null', 'no', 'empty', 'ignore']
+    return None if value in none_values else value
+
 MODULE_PARSE = ['StableDiffusion3', 'VAE', 'FLUXKontext', 'StableDiffusionXL']
 
 MODULE_MAP = {
@@ -63,34 +67,98 @@ MODULE_MAP = {
 }
 
 QUANT_FIELDS = {
-    'bnb_type': {
-        'label': 'Type',
-        'options': ['8bit', '4bit'],
-        'default': '4bit',
+    'bnb_group': {
+        'label': 'BitsAndBytes quantization',
+        'display': 'ui_group',
+        'options': ['bnb_type', 'bnb_double_quant'],
+        'default': 'none',
         'type': 'string',
+        'style': {
+            'borderTop': '1px solid rgba(255,255,255,0.1)',
+            'paddingTop': 1,
+        }
     },
-    'bnb_double_quant': {
-        'label': 'Double Quant',
-        'type': 'boolean',
-        'default': True,
+        'bnb_type': {
+            'label': 'Type',
+            'options': ['8bit', '4bit'],
+            'default': '4bit',
+            'type': 'string',
+            'onChange': {
+                '8bit': [],
+                '4bit': ['bnb_double_quant']
+            }
+        },
+        'bnb_double_quant': {
+            'label': 'Double Quantization',
+            'type': 'boolean',
+            'display': 'checkbox',
+            'default': True,
+        },
+
+    'quanto_group': {
+        'label': 'Quanto quantization',
+        'display': 'ui_group',
+        'options': ['quanto_weights', 'quanto_activations'],
+        'default': 'none',
+        'style': {
+            'borderTop': '1px solid rgba(255,255,255,0.1)',
+            'paddingTop': 1,
+        }
     },
-    'quanto_type': {
-        'label': 'Type',
-        'options': ['float8', 'int8', 'int4', 'int2'],
-        'default': 'float8',
-        'type': 'string',
+        'quanto_weights': {
+            'label': 'Weights',
+            'options': ['float8', 'int8', 'int4', 'int2'],
+            'default': 'float8',
+            'type': 'string',
+        },
+        'quanto_activations': {
+            'label': 'Activations',
+            'options': ['none', 'float8', 'int8'],
+            'default': 'none',
+            'type': 'string',
+            #'postProcess': str_to_none
+        },
+
+    'torchao_group': {
+        'label': 'TorchAO quantization',
+        'display': 'ui_group',
+        'options': ['torchao_quant_type'],
+        'default': 'none',
+        'style': {
+            'borderTop': '1px solid rgba(255,255,255,0.1)',
+            'paddingTop': 1,
+        }
     },
-    'torchao_quant_type': {
-        'label': 'Quant Type',
-        'options': [
-            'int4wo', 'int4dq', 'int8wo', 'int8dq',
-            'uint1wo', 'uint2wo', 'uint3wo', 'uint4wo', 'uint5wo', 'uint6wo', 'uint7wo',
-            'float8wo_e5m2', 'float8wo_e4m3', 'float8dq_e4m3', 'float8dq_e4m3_tensor', 'float8dq_e4m3_row',
-            'fp3_e1m1', 'fp3_e2m0', 'fp4_e1m2', 'fp4_e2m1', 'fp4_e3m0', 'fp5_e1m3', 'fp5_e2m2',
-            'fp5_e3m1', 'fp5_e4m0', 'fp6_e1m4', 'fp6_e2m3', 'fp6_e3m2', 'fp6_e4m1', 'fp6_e5m0',
-            'fp7_e1m5', 'fp7_e2m4', 'fp7_e3m3', 'fp7_e4m2', 'fp7_e5m1', 'fp7_e6m0'
-        ],
-        'default': 'float8wo_e4m3',
+
+        'torchao_quant_type': {
+            'label': 'Quant Type',
+            'options': [
+                'int4wo', 'int4dq', 'int8wo', 'int8dq',
+                'uint1wo', 'uint2wo', 'uint3wo', 'uint4wo', 'uint5wo', 'uint6wo', 'uint7wo',
+                'float8wo_e5m2', 'float8wo_e4m3', 'float8dq_e4m3', 'float8dq_e4m3_tensor', 'float8dq_e4m3_row',
+                'fp3_e1m1', 'fp3_e2m0', 'fp4_e1m2', 'fp4_e2m1', 'fp4_e3m0', 'fp5_e1m3', 'fp5_e2m2',
+                'fp5_e3m1', 'fp5_e4m0', 'fp6_e1m4', 'fp6_e2m3', 'fp6_e3m2', 'fp6_e4m1', 'fp6_e5m0',
+                'fp7_e1m5', 'fp7_e2m4', 'fp7_e3m3', 'fp7_e4m2', 'fp7_e5m1', 'fp7_e6m0'
+            ],
+            'default': 'float8wo_e4m3',
+            'type': 'string',
+        },
+
+    "quant_exclude": {
+        "description": "Exclude layers from the quantization process.",
+        "label": "Exclude Layers",
+        "display": "autocomplete",
+        "default": "proj_out",
+        "options": FLUX_LAYERS,
+        "fieldOptions": {
+            "multiple": True,
+            "disableCloseOnSelect": True
+        }
+    },
+    'quant_device': {
+        'label': 'Quant Device',
+        'options': DEVICE_LIST,
+        'default': DEFAULT_DEVICE,
         'type': 'string',
     }
 }
@@ -102,9 +170,10 @@ QUANT_SELECT = {
         'options': { 'none': 'None', 'bnb': 'BitsAndBytes', 'quanto': 'Optimum Quanto', 'torchao': 'TorchAO' },
         'default': 'none',
         'onChange': {
-            'bnb': ['bnb_type', 'bnb_double_quant'],
-            'quanto': ['quanto_type'],
-            'torchao': ['torchao_quant_type']
+            'none': [],
+            'bnb': ['bnb_group', 'quant_device'],
+            'quanto': ['quanto_group', 'quant_exclude', 'quant_device'],
+            'torchao': ['torchao_group', 'quant_exclude', 'quant_device']
         },
     },
 }
