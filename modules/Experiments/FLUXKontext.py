@@ -7,7 +7,7 @@ from utils.huggingface import get_model_class
 from mellon.config import CONFIG
 from diffusers import FluxTransformer2DModel, AutoencoderKL
 from modules.Experiments import QUANT_FIELDS, QUANT_SELECT, PREFERRED_KONTEXT_RESOLUTIONS
-from utils.quantization import getQuantizationConfig
+from utils.quantization import getQuantizationConfig, quantize
 from utils.image import fit as image_fit
 from utils.memory_menager import memory_flush
 import torch
@@ -47,17 +47,6 @@ class FluxTransformerLoader(NodeBase):
         },
         **QUANT_SELECT,
         **QUANT_FIELDS,
-        "exclude_layers": {
-            "description": "Exclude layers from the quantization.",
-            "label": "Exclude Layers",
-            "display": "autocomplete",
-            "default": "proj_out",
-            "options": FLUX_LAYERS,
-            "fieldOptions": {
-                "multiple": True,
-                "disableCloseOnSelect": True
-            }
-        },
         "fuse_qkv": {
             "description": "Improve performance at the cost of increased memory usage.",
             "label": "Fuse QKV projections",
@@ -119,10 +108,15 @@ class FluxTransformerLoader(NodeBase):
                 # workaround for an issue with GGUF Kontext models not having the correct in_channels
                 # https://github.com/huggingface/diffusers/issues/11839
                 config['in_channels'] = 64
-        elif quantization is not None:
+        elif quantization == 'bnb':
             config['quantization_config'] = getQuantizationConfig(quantization, **kwargs)
 
         transformer = self.graceful_model_loader(loaderCallback, model_id, config)
+
+        if quantization == 'torchao' or quantization == 'quanto':
+            quant_device = kwargs.get('quant_device', None)
+            transformer = self.mm_exec(lambda: quantize(transformer, quantization, **kwargs), quant_device, models=[transformer])
+            memory_flush()
 
         # for name, module in transformer.named_modules():
         #     with open("transformer_modules.txt", "a") as f:
@@ -186,8 +180,8 @@ class FluxTextEncoderLoader(NodeBase):
 
         t5 = kwargs.get('t5', None)
 
-        quant_config = {}
-        if not t5 and quantization is not None:
+        quant_config = None
+        if not t5 and quantization == 'bnb':
             quant_config = getQuantizationConfig(quantization, **kwargs)
 
         config = {
@@ -203,6 +197,14 @@ class FluxTextEncoderLoader(NodeBase):
         self.mm_add(text_encoder, priority=1)
         if not t5:
             self.mm_add(text_encoder_2, priority=1)
+
+            if quantization == 'torchao' or quantization == 'quanto':
+                quant_device = kwargs.get('quant_device', None)
+                text_encoder_2 = self.mm_exec(lambda: quantize(text_encoder_2, quantization, **kwargs), quant_device, models=[text_encoder_2])
+                memory_flush()
+        
+        #print(dict(text_encoder_2.named_parameters()).keys())
+        #print(dict(text_encoder_2.named_modules()).keys())
 
         return { "encoders": { "text_encoder": text_encoder, "text_encoder_2": text_encoder_2, "tokenizer": tokenizer, "tokenizer_2": tokenizer_2 } }
 

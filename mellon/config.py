@@ -79,6 +79,7 @@ class Config:
             'app_root': app_root,
             'work_dir': cfg.get('paths', 'work_dir', fallback=os.path.join(app_root, 'data')),
             'data': cfg.get('paths', 'data', fallback=os.path.join(app_root, 'data')),
+            'images': cfg.get('paths', 'images', fallback=os.path.join(app_root, 'data', 'images')),
             'models': cfg.get('paths', 'models', fallback=os.path.join(app_root, 'data', 'models')),
             'upscalers': cfg.get('paths', 'upscalers', fallback=os.path.join(app_root, 'data', 'models', 'upscalers')),
             #'preprocessors': cfg.get('paths', 'preprocessors', fallback=os.path.join(app_root, 'data', 'preprocessors')),

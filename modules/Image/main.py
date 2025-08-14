@@ -4,6 +4,8 @@ from mellon.config import CONFIG
 from pathlib import Path
 import logging
 from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
+import nanoid
+
 logger = logging.getLogger('mellon')
 
 class Load(NodeBase):
@@ -15,18 +17,22 @@ class Load(NodeBase):
     category = "image"
     resizable = True
     params = {
-        "file": {
-            "label": "File",
-            "display": "filebrowser",
-            "type": "str",
-            "fieldOptions": {
-                "fileTypes": ["image"],
-            },
-        },
         "image": {
             "label": "Image",
             "display": "output",
             "type": "image",
+        },
+        'label': {
+            "display": "ui_label",
+            "value": "Load Image",
+        },
+        "file": {
+            "label": False,
+            "display": "filebrowser",
+            "type": "str",
+            "fieldOptions": {
+                "fileTypes": ["image"]
+            },
         },
         "width": { "display": "output", "type": "int" },
         "height": { "display": "output", "type": "int" },
@@ -54,6 +60,109 @@ class Load(NodeBase):
             return {"image": None, "width": None, "height": None}
         
         return {"image": image, "width": image.width, "height": image.height}
+
+class Save(NodeBase):
+    """
+    Save an image to a file
+    """
+
+    label = "Save Image"
+    category = "image"
+    style = { "minWidth": 360 }
+    resizable = True
+    params = {
+        "image": {
+            "label": "Image",
+            "display": "input",
+            "type": "image",
+        },
+        "filename": {
+            "label": "File",
+            "type": "str",
+            "default": "{PATH:images}/Mellon_{HASH:6}.webp",
+        },
+        "quality": {
+            "label": "Quality",
+            "type": "int",
+            "display": "slider",
+            "default": 100,
+            "min": 1,
+            "max": 100
+        },
+        "output": {
+            "label": "Filename",
+            "display": "output",
+            "type": "str",
+        }
+    }
+
+    def execute(self, **kwargs):
+        from pathlib import Path
+        from PIL import Image
+
+        image = kwargs.get("image")
+        if not isinstance(image, list):
+            image = [image]
+
+        filename = kwargs.get("filename", "{PATH:images}/Mellon_{HASH:6}.webp")
+        extension = filename.split('.')[-1].lower()
+        quality = kwargs.get("quality", 95)
+        output = []
+
+        for index, img in enumerate(image):
+            parsed_filename = self._parse_filename(filename, index=index)
+            parsed_filename = Path(parsed_filename)
+
+            if not parsed_filename.is_absolute():
+                parsed_filename = Path(CONFIG.paths['data']) / parsed_filename
+
+            try:
+                if not parsed_filename.parent.exists():
+                    parsed_filename.parent.mkdir(parents=True)
+
+                if extension in ['jpg', 'jpeg']:
+                    #image = img.convert("RGB")
+                    img.save(parsed_filename, quality=quality)
+                elif extension == 'png':
+                    #image = img.convert("RGBA")
+                    img.save(parsed_filename)
+                elif extension == 'webp':
+                    #image = img.convert("RGBA")
+                    img.save(parsed_filename, quality=quality)
+                else:
+                    img.save(parsed_filename)
+                output.append(str(parsed_filename))
+            except Exception as e:
+                logger.error(f"Error saving image {parsed_filename}: {e}")
+
+        if len(output) == 0:
+            output = None
+        if len(output) == 1:
+            output = output[0]
+
+        return { "output": output }
+
+    def _parse_filename(self, filename, **kwargs):
+        from datetime import datetime
+        import re
+
+        def hash_func(arg, **kwargs): return nanoid.generate(size=int(arg))
+        def date_func(arg, **kwargs): return datetime.now().strftime(arg)
+        def index_func(arg, **kwargs): return "{:0>{width}}".format(kwargs.get("index", 0), width=arg)
+        def path_func(arg, **kwargs): return CONFIG.paths.get(str(arg).lower()) or 'work_dir'
+        local_map = locals()
+
+        def replace_match(match):
+            key = match.group(1).lower()
+            arg = match.group(2)
+            func_name = f"{key}_func"
+            if func_name in local_map:
+                return str(local_map[func_name](arg, **kwargs))
+            return match.group(0)
+
+        filename = re.sub(r'\{(\w+):([^\}]+)\}', replace_match, filename)
+        return filename
+
 
 class Preview(NodeBase):
     """

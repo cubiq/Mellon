@@ -118,7 +118,7 @@ class MemoryManager:
                 return x
             except torch.OutOfMemoryError as e:
                 if not cache_priority:
-                    logger.debug(f"Cannot free enough memory to load model {model_id}")
+                    logger.warning(f"Cannot free enough memory to load model {model_id}")
                     raise e
                 
                 k = cache_priority.pop(0)[2]
@@ -152,7 +152,7 @@ class MemoryManager:
             if k and k in self.cache:
                 exclude_ids.append(k)
 
-        # auto load the models add them to the exclude list
+        # auto load the models, add them to the exclude list
         for v in models:
             k = v if isinstance(v, str) else v._mm_id if hasattr(v, '_mm_id') else None
             if k and k in self.cache:
