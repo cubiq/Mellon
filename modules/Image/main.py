@@ -261,3 +261,42 @@ class Resize(NodeBase):
         
         return {"output": image}
 
+
+
+class ImageCompare(NodeBase):
+    label = "Image Compare"
+    category = "image"
+    resizable = True
+    params = {
+        "image_1": {
+            "label": "Image From",
+            "display": "input",
+            "type": "image",
+        },
+        "image_2": {
+            "label": "Image To",
+            "display": "input",
+            "type": "image",
+        },
+        "image_list": {
+            "display": "output",
+            "type": "image",
+            "hidden": True
+        },
+        "compare": {
+            "label": "Compare",
+            "display": "ui_imagecompare",
+            "type": "url",
+            "dataSource": "image_list"
+        },
+    }
+
+    def execute(self, **kwargs):
+        image_1 = kwargs.get("image_1")
+        image_2 = kwargs.get("image_2")
+        image_1 = image_1[0] if isinstance(image_1, list) and len(image_1) > 0 else image_1
+        image_2 = image_2[0] if isinstance(image_2, list) and len(image_2) > 0 else image_2
+
+        return {
+            "image_list": [image_1, image_2]
+        }

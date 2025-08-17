@@ -86,14 +86,135 @@ class GuidedBlur(NodeBase):
         image = ImageToTensor(image)
 
         output = []
-        for i in image:
-            if i.ndim == 3:
-                i = i.unsqueeze(0)
-            
-            blur = guided_blur(i.to(device), i.to(device), kernel_size=radius, eps=eps, subsample=subsample)
+        for img in image:
+            if img.ndim == 3:
+                img = img.unsqueeze(0)
+            img = img.to(device)
+            blur = guided_blur(img, img, kernel_size=radius, eps=eps, subsample=subsample)
             output.append(blur.to('cpu'))
         del image
         
+        output = TensorToImage(output)
+
+        return { "output": output }
+    
+class AdaptiveSharpening(NodeBase):
+    def execute(self, **kwargs):
+        image = kwargs.get("image")
+        sharpness = kwargs.get("sharpness", 0.8)
+        device = kwargs.get("device")
+
+        image = ImageToTensor(image)
+        image = image if isinstance(image, list) else [image]
+
+        output = []
+        for img in image:
+            if img.ndim == 3:
+                img = img.unsqueeze(0)
+            
+            # Move image to the correct device before processing
+            img = img.to(device)
+
+            # Call the static sharpen method
+            sharp_img = AdaptiveSharpening.sharpen(img, sharpness)
+            output.append(sharp_img.to('cpu'))
+        
+        del image
+
+        output = TensorToImage(output)
+
+        return { "output": output }
+    
+    @staticmethod
+    def sharpen(image, sharpness):
+        import torch
+        import torch.nn.functional as F
+
+        epsilon = 1e-5
+        
+        # Use Unfold to extract 3x3 patches
+        unfold = torch.nn.Unfold(kernel_size=3, padding=1, stride=1)
+        patches = unfold(image).view(image.shape[0], image.shape[1], 9, image.shape[2], image.shape[3])
+
+        # Center pixel is at index 4
+        e = patches[:, :, 4]
+
+        # Indices for neighbors
+        # 0 1 2
+        # 3 4 5
+        # 6 7 8
+        cross_indices = [1, 3, 5, 7]
+        diag_indices = [0, 2, 6, 8]
+        
+        # Extract cross and diagonal neighbors using indexing
+        cross_neighbors = patches[:, :, cross_indices]
+        diag_neighbors = patches[:, :, diag_indices]
+
+        # Computing contrast
+        # Note: The original code included the center pixel 'e' in the 'cross' min/max.
+        # To replicate that, we can concatenate it.
+        cross_and_center = torch.cat((cross_neighbors, e.unsqueeze(2)), dim=2)
+        mn, _ = torch.min(cross_and_center, dim=2)
+        mx, _ = torch.max(cross_and_center, dim=2)
+
+        mn2, _ = torch.min(diag_neighbors, dim=2)
+        mx2, _ = torch.max(diag_neighbors, dim=2)
+        
+        mx = mx + mx2
+        mn = mn + mn2
+
+        # Computing local weight
+        inv_mx = torch.reciprocal(mx + epsilon)
+        amp = inv_mx * torch.minimum(mn, (2 - mx))
+
+        # scaling
+        amp = torch.sqrt(torch.clamp(amp, min=0)) # Add clamp for stability
+        w = -amp * (sharpness * (1/5 - 1/8) + 1/8)
+        div = torch.reciprocal(1 + 4*w)
+
+        # Sum cross neighbors and apply weights
+        sum_cross_neighbors = torch.sum(cross_neighbors, dim=2)
+        output = (sum_cross_neighbors * w + e) * div
+        output = output.clamp(0, 1)
+
+        return output
+
+class GaussianBlur(NodeBase):
+    def execute(self, **kwargs):
+        from kornia.filters import gaussian_blur2d
+        image = kwargs.get("image")
+        amount = kwargs.get("amount", 1)
+        device = kwargs.get("device")
+
+        sigma_value = max(0.1, min(100, amount))
+        sigma = (sigma_value, sigma_value)
+
+        # Calculate kernel_size based on sigma
+        ksize = int(2 * round(3 * sigma_value) + 1)
+        kernel_size = (ksize, ksize)
+
+        device = kwargs.get("device")
+        image = image if isinstance(image, list) else [image]
+        image = ImageToTensor(image)
+
+        # # kernel_size must be an odd number
+        # if radius % 2 == 0:
+        #     radius += 1
+        # radius = (radius, radius)
+        # sigma = (sigma, sigma)
+
+        image = image if isinstance(image, list) else [image]
+        image = ImageToTensor(image)
+
+        output = []
+        for img in image:
+            if img.ndim == 3:
+                img = img.unsqueeze(0)
+            img = img.to(device)
+            blur = gaussian_blur2d(img, kernel_size=kernel_size, sigma=sigma)
+            output.append(blur.to('cpu'))
+        del image
+
         output = TensorToImage(output)
 
         return { "output": output }

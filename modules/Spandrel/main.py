@@ -9,70 +9,97 @@ from utils.image import resize
 from mellon.config import CONFIG
 
 class Upscaler(NodeBase):
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+
+        self._model_path = None
+        self._model = None
+
     def execute(self, **kwargs):
         image = kwargs.get("image")
         model_id = kwargs.get("model_id", None)
-        rescale = kwargs.get("rescale")
+        model_source = model_id.get('source', 'local') if isinstance(model_id, dict) else 'local'
+        model_path = model_id.get('value', None) if isinstance(model_id, dict) else model_id
+        downscale = kwargs.get("downscale", 1.0)
         device = kwargs.get("device")
+        online_status = CONFIG.hf['online_status']
 
-        if not model_id:
-            logger.error("Model ID is required")
-            return {"output": None}
+        if not model_path:
+            raise ValueError("Model ID is required")
 
-        model_id = model_id['path'] if isinstance(model_id, dict) and 'path' in model_id else model_id
+        if model_source == 'hub':
+            from utils.huggingface import cached_file_path, list_repo_models
 
-        # check if model_id is a file
-        if not path.isfile(model_id):
-            from huggingface_hub import repo_exists, HfFileSystem, hf_hub_download
-            hub_repo = repo_exists(model_id, token=CONFIG.hf['token'])
+            if model_path.endswith((".safetensors", ".pt", ".pth", ".ckpt", ".pkl", ".bin")):
+                path_segments = model_path.split('/')
+                if len(path_segments) < 3:
+                    raise ValueError(f"Invalid model path: {model_path}")
 
-            if not hub_repo:
-                logger.error(f"Model {model_id} not found on Hugging Face")
-                return {"output": None}
-            hffs = HfFileSystem()
-            repo_files = hffs.ls(model_id, detail=False)
-            # return the first model in the list
-            file = next((f for f in repo_files if f.endswith(("safetensors", "pt", "pth", "ckpt", "pkl", "bin"))), None).split('/')[-1]
-
-            if not file:
-                logger.error(f"Model {model_id} not found on Hugging Face")
-                return {"output": None}
-            local_path = path.join(CONFIG.paths['upscalers'], model_id)
-            # create the directory if it doesn't exist
-            makedirs(local_path, exist_ok=True)
-            # check if the file already exists
-            if not path.isfile(path.join(local_path, file)):
-                model_id = hf_hub_download(model_id, file, token=CONFIG.hf['token'], local_dir=local_path)
+                file = '/'.join(path_segments[2:])
+                repo_id = '/'.join(path_segments[:2])
+                model_path = cached_file_path(repo_id, file)
             else:
-                model_id = path.join(local_path, file)
+                file = next(iter(list_repo_models(repo_id=model_path, token=CONFIG.hf['token'])), None)
+                repo_id = model_path
+                model_path = cached_file_path(repo_id, file)
 
+            if not model_path:
+                if online_status == "Offline":
+                    #logger.error(f"Model {model_path} not found in cache and online status is `offline`. Consider changing the online status or adding the model to the cache manually.")
+                    raise FileNotFoundError(f"Model {model_path} not found in cache and online status is `offline`. Consider changing the online status or adding the model to the cache manually.")
+
+                from huggingface_hub import hf_hub_download
+                try:
+                    model_path = hf_hub_download(repo_id, file, token=CONFIG.hf['token'])
+                except Exception as e:
+                    logger.error(f"Error downloading model {model_path}: {e}")
+                    raise
+
+        else:
+            # check if path is absolute
+            if not path.isabs(model_path):
+                model_path = path.join(CONFIG.paths['models'], model_path)
+            # check if file exist
+            if not path.isfile(model_path):
+                logger.error(f"Model {model_path} not found")
+                return {"output": None}
+
+        if not model_path:
+            raise ValueError(f"Invalid model path: {model_path}")
+    
         try:
-            model = ModelLoader().load_from_file(model_id).eval()
+            if model_path == self._model_path and self._model is not None:
+                model = self._model
+            else:
+                model = ModelLoader().load_from_file(model_path).eval()
+                self._model_path = model_path
+                self._model = model
         except Exception as e:
-            logger.error(f"Error loading Spandrel model {model_id}")
+            logger.error(f"Error loading Spandrel model {model_path}")
             raise e
 
         self.mm_add(model, priority=0)
-        model = self.mm_load(model, device)
-        output = self.mm_exec(lambda: self.upscale(image, model), device, exclude=[model])
-        
-        if rescale != 1.0:
-            output = [resize(o, int(o.width * rescale), int(o.height * rescale), resample='LANCZOS') for o in output]
+        output = self.mm_exec(lambda: Upscaler.upscale(image, model), device, models=[model])
+
+        if downscale != 1.0:
+            output = [resize(o, int(o.width * downscale), int(o.height * downscale), resample='LANCZOS') for o in output]
 
         return { "output": output }
-    
-    def upscale(self, image, model):
+
+    @staticmethod
+    def upscale(image, model):
         image = ImageToTensor(image)
         image = image if isinstance(image, list) else [image]
         output = []
 
-        for i in image:
-            if i.ndim == 3:
-                i = i.unsqueeze(0)
+        for img in image:
+            if img.ndim == 3:
+                img = img.unsqueeze(0)
             # remove alpha channel
-            if i.shape[1] == 4:
-                i = i[:, :3]
-            output.append(model(i.to(model.device)).to('cpu'))
+            if img.shape[1] == 4:
+                img = img[:, :3]
+
+            output.append(model(img.to(model.device)).to('cpu'))
         del image
 
         if output:

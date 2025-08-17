@@ -95,9 +95,16 @@ def get_local_model_ids(id: Optional[str] = None, class_name: Optional[str] | bo
 
     return local_models
 
-def cached_file_path(repo_id: str, file: str):
+def cached_file_path(repo_id: str, file: str | None = None):
     cache_dir = CONFIG.hf['cache_dir']
     file_path = None
+
+    if file is None:
+        path = repo_id.split('/')
+        if len(path) < 3:
+            return False
+        file = '/'.join(path[2:])
+        repo_id = '/'.join(path[:2])
 
     try:
         file_path = try_to_load_from_cache(repo_id=repo_id, filename=file, cache_dir=cache_dir)
@@ -161,7 +168,7 @@ def list_repo_models(repo_id: str, token: Optional[str] = None):
     token = token or CONFIG.hf['token']
     try:
         files = list_repo_files(repo_id=repo_id, token=token)
-        models = [f for f in files if f.endswith(("safetensors", "pt", "pth", "ckpt", "pkl", "bin"))]
+        models = [f for f in files if f.endswith((".safetensors", ".pt", ".pth", ".ckpt", ".pkl", ".bin"))]
     except Exception as e:
         logger.error(f'Error listing models: {e}')
         return []
