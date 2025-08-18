@@ -375,6 +375,17 @@ class NodeBase:
             "fields": field,
         }, self._sid)
 
+    def set_field_params(self, field: str, params: dict):
+        if not self._sid or not self.node_id:
+            return
+
+        server.queue_message({
+            "type": "set_field_params",
+            "node": self.node_id,
+            "field": field,
+            "params": params,
+        }, self._sid)
+
 
     """
     ╭────────────────╮

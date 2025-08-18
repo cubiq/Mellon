@@ -62,6 +62,9 @@ def compile(model):
 def TensorToImage(tensor):
     from torchvision.transforms import v2 as tt
 
+    if isinstance(tensor, torch.Tensor) and tensor.ndim == 4:
+        tensor = list(tensor.unbind(0))
+
     tensor = tensor if isinstance(tensor, list) else [tensor]
     output = []
     for t in tensor:
@@ -74,10 +77,13 @@ def TensorToImage(tensor):
 def ImageToTensor(image):
     from torchvision.transforms import v2 as tt
     #return tt.ToTensor()(image)
-    return tt.Compose([
+    transform = tt.Compose([
         tt.ToImage(),
         tt.ToDtype(torch.float32, scale=True)
-    ])(image)
+    ])
+    if isinstance(image, list):
+        return [transform(img) for img in image]
+    return transform(image)
 
 def get_memory_stats():
     if not torch.cuda.is_available():

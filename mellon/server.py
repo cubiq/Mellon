@@ -847,7 +847,7 @@ class WebServer:
             data_param_key = params[p].get('sourceKey')
 
             # the field is a UI element, used mostly to display the data in the UI
-            if 'display' in params[p] and params[p]['display'] in ['ui_group', 'ui_text', 'ui_image', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
+            if 'display' in params[p] and params[p]['display'] in ['ui_group', 'ui_text', 'ui_image', 'ui_imagecompare', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
                 ui_fields[p] = data_param_key if data_param_key else None
 
             # the field is an input that gets its value from an output of another node
@@ -926,13 +926,14 @@ class WebServer:
             if self.modules[module][action]['params'][ui_key].get('display') in ['ui_button', 'ui_group']:
                 continue
 
-            # if the data key is an output, get the value from the output otherwise from the params
-            if data_key in self.node_cache[id].output:
-                source_value = self.node_cache[id].output[data_key]
-            elif data_key in self.node_cache[id].params:
-                source_value = self.node_cache[id].params[data_key]
             else:
-                continue
+                # if the data key is an output, get the value from the output otherwise from the params
+                if data_key in self.node_cache[id].output:
+                    source_value = self.node_cache[id].output[data_key]
+                elif data_key in self.node_cache[id].params:
+                    source_value = self.node_cache[id].params[data_key]
+                else:
+                    continue
                         
             data_type = self.modules[module][action]['params'][data_key].get('type') # data type of the source field
             data_format = self.modules[module][action]['params'][ui_key].get('type', 'text') # format of the returned value: text, raw, url
