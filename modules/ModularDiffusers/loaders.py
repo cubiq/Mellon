@@ -27,38 +27,41 @@ class AutoModelLoader(NodeBase):
     label = "Load Model"
     category = "loader"
     resizable = True
+    skipParamsCheck = True
     params = {
-        "name": {
-            "label": "Name",
+        "model_type": {
+            "label": "Model Type",
             "type": "string",
             "options": {
+                "": "",
                 "UNet2DConditionModel": "UNet",
                 "AutoencoderKL": "VAE",
                 "ControlNetModel": "ControlNet",
             },
-            "default": "UNet2DConditionModel",
+            "onChange": "set_filters",
         },
         "model_id": {
             "label": "Model ID",
             "display": "modelselect",
             "type": "string",
-            "default": "",
+            "value": {"source": "hub", "value": ""},
             "fieldOptions": {
                 "noValidation": True,
-                "sources": ["hub"],
+                "sources": ["hub", "local"],
                 "filter": {
-                    "hub": {"className": ["UNet2DConditionModel", "AutoencoderKL", "ControlNetModel"]},
+                    "hub": {"className": [""]},
+                    "local": {"className": [""]},
                 },
             },
         },
         "dtype": {
             "label": "dtype",
             "options": ["float32", "float16", "bfloat16"],
-            "default": "float16",
+            "value": "float16",
             "postProcess": str_to_dtype,
         },
-        "subfolder": {"label": "Subfolder", "type": "string", "default": ""},
-        "variant": {"type": "string", "default": "", "options": ["", "fp16", "bf16"]},
+        "subfolder": {"label": "Subfolder", "type": "string", "value": ""},
+        "variant": {"type": "string", "value": "", "options": ["", "fp16", "bf16"]},
         "model": {"label": "Model", "display": "output", "type": "diffusers_auto_model"},
     }
 
@@ -68,9 +71,32 @@ class AutoModelLoader(NodeBase):
             components.remove_from_collection(comp_id, self.node_id)
         super().__del__()
 
-    def execute(self, name, model_id, dtype, variant=None, subfolder=None):
+    def set_filters(self, values, ref):
+        model_type = values.get("model_type", "")
+
+        default_values = {
+            "": "",
+            "UNet2DConditionModel": "UNet",
+            "AutoencoderKL": "VAE",
+            "ControlNetModel": "ControlNet",
+        }
+
+        self.set_field_params(
+            "model_id",
+            {
+                "default": {"source": "hub", "value": default_values[model_type]},
+                "value": {"source": "hub", "value": default_values[model_type]},
+                "fieldOptions": {
+                    "filter": {
+                        "hub": {"className": [model_type]},
+                    },
+                },
+            },
+        )
+
+    def execute(self, model_type, model_id, dtype, variant=None, subfolder=None):
         logger.debug(f"AutoModelLoader ({self.node_id}) received parameters:")
-        logger.debug(f"  name: '{name}'")
+        logger.debug(f"  model_type: '{model_type}'")
         logger.debug(f"  model_id: '{model_id}'")
         logger.debug(f"  subfolder: '{subfolder}'")
         logger.debug(f"  variant: '{variant}'")
@@ -86,9 +112,9 @@ class AutoModelLoader(NodeBase):
         else:
             real_model_id = ""
 
-        spec = ComponentSpec(name=name, repo=real_model_id, subfolder=subfolder, variant=variant)
+        spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
         model = spec.load(torch_dtype=dtype)
-        comp_id = components.add(name, model, collection=self.node_id)
+        comp_id = components.add(model_type, model, collection=self.node_id)
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
         logger.debug(f" AutoModelLoader: component manager: {components}")
 
@@ -99,28 +125,35 @@ class ModelsLoader(NodeBase):
     label = "Load Models"
     category = "loader"
     resizable = True
+    skipParamsCheck = True
     params = {
+        "model_type": {
+            "label": "Model Type",
+            "type": "string",
+            "options": {"": "", "StableDiffusionXLModularPipeline": "Stable Diffusion XL"},
+            "onChange": ["set_filters", {"action": "signal", "target": "unet_out"}],
+        },
         "repo_id": {
             "label": "Repository ID",
             "display": "modelselect",
             "type": "string",
-            "default": {"source": "hub", "value": "OzzyGT/base-modular-loader"},
+            "value": {"source": "hub", "value": ""},
             "fieldOptions": {
                 "noValidation": True,
                 "sources": ["hub", "local"],
                 "filter": {
-                    "hub": {"className": ["StableDiffusionXLModularPipeline"]},
-                    "local": {"className": ["StableDiffusionXLModularPipeline"]},
+                    "hub": {"className": [""]},
+                    "local": {"className": [""]},
                 },
             },
         },
         "dtype": {
             "label": "dtype",
             "options": ["float32", "float16", "bfloat16"],
-            "default": "float16",
+            "value": "float16",
             "postProcess": str_to_dtype,
         },
-        "device": {"label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
         "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
         "text_encoders": {"label": "Text Encoders", "display": "output", "type": "text_encoders"},
@@ -140,7 +173,28 @@ class ModelsLoader(NodeBase):
         self.loader = None
         super().__del__()
 
-    def execute(self, repo_id, device, dtype, unet=None, vae=None):
+    def set_filters(self, values, ref):
+        model_type = values.get("model_type", "")
+
+        default_values = {
+            "": "",
+            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+        }
+
+        self.set_field_params(
+            "repo_id",
+            {
+                "default": {"source": "hub", "value": default_values[model_type]},
+                "value": {"source": "hub", "value": default_values[model_type]},
+                "fieldOptions": {
+                    "filter": {
+                        "hub": {"className": [model_type]},
+                    },
+                },
+            },
+        )
+
+    def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
             - repo_id: {repo_id}
