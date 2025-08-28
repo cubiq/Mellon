@@ -1,23 +1,61 @@
 import logging
 
-from diffusers import LayerSkipConfig
+from diffusers import LayerSkipConfig, SmoothedEnergyGuidanceConfig
 
 from mellon.NodeBase import NodeBase
+
+from . import SDXL_BLOCKS
 
 
 logger = logging.getLogger("mellon")
 
+LAYER_CONFIG_MAPPING = {
+    "SkipLayerGuidance": "skip_layer_config",
+    "AutoGuidance": "auto_guidance_config",
+    "SmoothedEnergyGuidance": "seg_guidance_config",
+}
+
+# TODO: not sure if these defaults make sense and it would be more complex with each model
+DEFAULT_CONFIGS = {
+    "SkipLayerGuidance": {
+        "skip_layer_config": LayerSkipConfig(
+            indices=[0],
+            fqn="mid_block.attentions.0.transformer_blocks",
+            dropout=1.0,
+            skip_attention=False,
+            skip_attention_scores=True,
+            skip_ff=False,
+        )
+    },
+    "AutoGuidance": {
+        "auto_guidance_config": LayerSkipConfig(
+            indices=[0],
+            fqn="mid_block.attentions.0.transformer_blocks",
+            dropout=1.0,
+            skip_attention=False,
+            skip_attention_scores=True,
+            skip_ff=False,
+        )
+    },
+    "SmoothedEnergyGuidance": {
+        "seg_guidance_config": SmoothedEnergyGuidanceConfig(
+            indices=[0],
+            fqn="mid_block.attentions.0.transformer_blocks",
+        )
+    },
+}
+
 GUIDER_CONFIGS = {
-    "PerturbedAttentionGuidance": {
-        "perturbed_guidance_scale": {
-            "label": "Perturbed Guidance Scale",
+    "SkipLayerGuidance": {
+        "skip_layer_guidance_scale": {
+            "label": "Skip Layer Guidance Scale",
             "type": "float",
             "value": 2.8,
             "min": 0.0,
             "max": 10.0,
         },
-        "perturbed_guidance_start": {
-            "label": "Perturbed Guidance Start",
+        "skip_layer_guidance_start": {
+            "label": "Skip Layer Start",
             "type": "float",
             "display": "slider",
             "default": 0.01,
@@ -25,7 +63,7 @@ GUIDER_CONFIGS = {
             "max": 1.0,
             "step": 0.01,
         },
-        "perturbed_guidance_stop": {
+        "skip_layer_guidance_stop": {
             "label": "Stop",
             "type": "float",
             "display": "slider",
@@ -34,8 +72,40 @@ GUIDER_CONFIGS = {
             "max": 1.0,
             "step": 0.01,
         },
-        "layers_config": {"label": "Layers", "type": "layers_config", "display": "input"},
-    }
+    },
+    "AdaptiveProjectedGuidance": {
+        "adaptive_projected_guidance_momentum": {
+            "label": "Adaptive Projected Guidance Momentum",
+            "type": "float",
+            "value": 0.0,
+            "min": -1.0,
+            "max": 1.0,
+            "step": 0.01,
+        },
+        "adaptive_projected_guidance_rescale": {
+            "label": "Adaptive Projected Guidance Rescale",
+            "type": "float",
+            "value": 15.0,
+            "min": 0.0,
+            "max": 100.0,
+        },
+    },
+    "ClassifierFreeZeroStarGuidance": {
+        "zero_init_steps": {
+            "label": "Zero Init Steps",
+            "type": "int",
+            "value": 1,
+        },
+    },
+    "AutoGuidance": {
+        "dropout": {
+            "label": "Dropout",
+            "type": "float",
+            "value": 1.0,
+            "min": 0.0,
+            "max": 10.0,
+        }
+    },
 }
 
 
@@ -51,10 +121,23 @@ class Guider(NodeBase):
             "type": "string",
             "options": {
                 "ClassifierFreeGuidance": "Classifier Free Guidance",
-                "PerturbedAttentionGuidance": "Perturbed Attention Guidance",
+                "SkipLayerGuidance": "Skip Layer Guidance",
+                "AdaptiveProjectedGuidance": "Adaptive Projected Guidance",
+                "ClassifierFreeZeroStarGuidance": "Classifier Free Zero Star Guidance",
+                "AutoGuidance": "Auto Guidance",
+                "SmoothedEnergyGuidance": "Smoothed Energy Guidance",
+                "TangentialClassifierFreeGuidance": "Tangential Classifier Free Guidance",
+                "FrequencyDecoupledGuidance": "Frequency Decoupled Guidance",
             },
             "value": "ClassifierFreeGuidance",
-            "onChange": "updateNode",
+            "onChange": [
+                "updateNode",
+                {
+                    "SkipLayerGuidance": ["layers_config"],
+                    "AutoGuidance": ["layers_config"],
+                    "SmoothedEnergyGuidance": ["layers_config"],
+                },
+            ],
         },
         "guidance_scale": {
             "label": "Guidance Scale",
@@ -97,7 +180,16 @@ class Guider(NodeBase):
             "max": 1.0,
             "step": 0.01,
         },
-        "guider_out": {"label": "Guider", "display": "output", "type": "guider"},
+        "guider_out": {
+            "label": "Guider",
+            "display": "output",
+            "type": "guider",
+            "onSignal": {
+                "action": "signal",
+                "target": "layers_config",
+            },
+        },
+        "layers_config": {"label": "Layers", "type": "layers_config", "display": "input"},
     }
 
     def updateNode(self, values, ref):
@@ -123,23 +215,30 @@ class Guider(NodeBase):
 
         guider_cls = getattr(__import__("diffusers", fromlist=[guider]), guider)
 
-        if layers_config is None:
-            # create defaults
-            # TODO: need a way to find model arch for blocks and layers
-            configs = {
-                "PerturbedAttentionGuidance": {
-                    "perturbed_guidance_config": LayerSkipConfig(
-                        indices=[0],
-                        fqn="mid_block.attentions.0.transformer_blocks",
-                        dropout=1.0,
-                        skip_attention=False,
-                        skip_attention_scores=True,
-                        skip_ff=False,
-                    )
-                }
-            }
-        else:
-            configs = {"PerturbedAttentionGuidance": {"perturbed_guidance_config": layers_config}}
+        configs = {}
+
+        if guider in LAYER_CONFIG_MAPPING:
+            if layers_config is None:
+                configs[guider] = DEFAULT_CONFIGS.get(guider, {})
+            else:
+                config_arg_name = LAYER_CONFIG_MAPPING[guider]
+
+                if isinstance(layers_config, list):
+                    layer_configs = []
+
+                    for config_dict in layers_config:
+                        if guider == "SmoothedEnergyGuidance":
+                            layer_config = SmoothedEnergyGuidanceConfig(
+                                indices=config_dict["indices"], fqn=config_dict["fqn"]
+                            )
+                        else:
+                            layer_config = LayerSkipConfig(**config_dict)
+
+                        layer_configs.append(layer_config)
+
+                    configs[guider] = {config_arg_name: layer_configs}
+                else:
+                    configs[guider] = {config_arg_name: layers_config}
 
         options = {**guider_options}
 
@@ -155,164 +254,67 @@ class Layers(NodeBase):
     label = "Layers"
     category = "sampler"
     resizable = True
+    skipParamsCheck = True
     params = {
-        "select_multi": {
+        "blocks_select": {
             "label": "Blocks",
             "type": "string",
             "display": "select",
-            "options": {
-                "down_blocks.1.attentions.0": "DownBlocks.1.Attentions.0",
-                "down_blocks.1.attentions.1": "DownBlocks.1.Attentions.1",
-                "down_blocks.2.attentions.0": "DownBlocks.2.Attentions.0",
-                "down_blocks.2.attentions.1": "DownBlocks.2.Attentions.1",
-                "mid_block.attentions.0": "MidBlock.Attentions.0",
-                "up_blocks.0.attentions.0": "UpBlocks.0.Attentions.0",
-                "up_blocks.0.attentions.1": "UpBlocks.0.Attentions.1",
-                "up_blocks.0.attentions.2": "UpBlocks.0.Attentions.2",
-                "up_blocks.1.attentions.0": "UpBlocks.1.Attentions.0",
-                "up_blocks.1.attentions.1": "UpBlocks.1.Attentions.1",
-                "up_blocks.1.attentions.2": "UpBlocks.1.Attentions.2",
-            },
-            "default": ["mid_block.attentions.0"],
+            "options": {"": ""},
             "fieldOptions": {"multiple": True},
-            "onChange": {
-                "down_blocks.1.attentions.0": ["down_blocks.1.attentions.0"],
-                "down_blocks.1.attentions.1": ["down_blocks.1.attentions.1"],
-                "down_blocks.2.attentions.0": ["down_blocks.2.attentions.0"],
-                "down_blocks.2.attentions.1": ["down_blocks.2.attentions.1"],
-                "mid_block.attentions.0": ["mid_block.attentions.0"],
-                "up_blocks.0.attentions.0": ["up_blocks.0.attentions.0"],
-                "up_blocks.0.attentions.1": ["up_blocks.0.attentions.1"],
-                "up_blocks.0.attentions.2": ["up_blocks.0.attentions.2"],
-                "up_blocks.1.attentions.0": ["up_blocks.1.attentions.0"],
-                "up_blocks.1.attentions.1": ["up_blocks.1.attentions.1"],
-                "up_blocks.1.attentions.2": ["up_blocks.1.attentions.2"],
+            "onChange": "set_blocks",
+        },
+        "layers_config": {
+            "label": "Layers",
+            "display": "output",
+            "type": "layers_config",
+            "onSignal": {
+                "action": "value",
+                "target": "blocks_select",
+                "prop": "options",
+                "data": {"StableDiffusionXLModularPipeline": SDXL_BLOCKS},
             },
         },
-        "down_blocks.1.attentions.0": {"label": "DownBlocks.1.0 Layers", "type": "string", "default": "0"},
-        "down_blocks.1.attentions.1": {"label": "DownBlocks.1.1 Layers", "type": "string", "default": "0"},
-        "down_blocks.2.attentions.0": {"label": "DownBlocks.2.0 Layers", "type": "string", "default": "0"},
-        "down_blocks.2.attentions.1": {"label": "DownBlocks.2.1 Layers", "type": "string", "default": "0"},
-        "mid_block.attentions.0": {"label": "MidBlock.0 Layers", "type": "string", "default": "0"},
-        "up_blocks.0.attentions.0": {"label": "UpBlocks.0.0 Layers", "type": "string", "default": "0"},
-        "up_blocks.0.attentions.1": {"label": "UpBlocks.0.1 Layers", "type": "string", "default": "0"},
-        "up_blocks.0.attentions.2": {"label": "UpBlocks.0.2 Layers", "type": "string", "default": "0"},
-        "up_blocks.1.attentions.0": {"label": "UpBlocks.1.0 Layers", "type": "string", "default": "0"},
-        "up_blocks.1.attentions.1": {"label": "UpBlocks.1.1 Layers", "type": "string", "default": "0"},
-        "up_blocks.1.attentions.2": {"label": "UpBlocks.1.2 Layers", "type": "string", "default": "0"},
-        "layers_config": {"label": "Layers", "display": "output", "type": "layers_config"},
     }
+
+    def set_blocks(self, values, ref):
+        blocks_select = values.get("blocks_select", [])
+
+        params = {}
+
+        for block_name in blocks_select:
+            params[block_name] = {
+                "label": block_name,
+                "display": "custom.LayerConfigField",
+                "value": {"enabled": True, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
+            }
+        self.send_node_definition(params)
 
     def execute(self, **kwargs):
         layer_configs = []
 
-        selected_blocks = kwargs.get("select_multi", [])
+        for block in kwargs:
+            if block == "blocks_select":
+                continue
 
-        for block_name in selected_blocks:
-            indices_str = kwargs.get(block_name, "0")
-            indices = [int(x.strip()) for x in indices_str.split(",")]
-            layer_configs.append(
-                LayerSkipConfig(
-                    indices=indices,
-                    fqn=f"{block_name}.transformer_blocks",
-                    dropout=1.0,
-                    skip_attention=False,
-                    skip_attention_scores=True,
-                    skip_ff=False,
-                )
-            )
+            config = kwargs.get(block, {})
 
-        print(f"{layer_configs=}")
+            indices_str = config.get("indices", "")
+            indices = []
+            if indices_str.strip():
+                indices = [int(x.strip()) for x in indices_str.split(",")]
+            else:
+                indices = [0]
+
+            layer_config = {
+                "indices": indices,
+                "fqn": f"{block}.transformer_blocks",
+                "dropout": config.get("dropout", 1.0),
+                "skip_attention": config.get("skip_attention", False),
+                "skip_attention_scores": config.get("skip_attention_scores", False),
+                "skip_ff": config.get("skip_ff", False),
+            }
+
+            layer_configs.append(layer_config)
 
         return {"layers_config": layer_configs}
-
-
-# class LayersFull(NodeBase):
-#     label = "LayersFull"
-#     category = "sampler"
-#     resizable = True
-#     params = {
-#         "down_blocks.1.attentions.0.transformer_blocks": {
-#             "label": "DownBlocks.1.Attentions.0",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
-#         },
-#         "down_blocks.1.attentions.1.transformer_blocks": {
-#             "label": "DownBlocks.1.Attentions.1",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
-#         },
-#         "down_blocks.2.attentions.0.transformer_blocks": {
-#             "label": "DownBlocks.2.Attentions.0",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": True},
-#         },
-#         "down_blocks.2.attentions.1.transformer_blocks": {
-#             "label": "DownBlocks.2.Attentions.1",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
-#         },
-#         "mid_block.attentions.0.transformer_blocks": {
-#             "label": "MidBlock.Attentions.0",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.0.attentions.0.transformer_blocks": {
-#             "label": "UpBlocks.0.attentions.0",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.0.attentions.1.transformer_blocks": {
-#             "label": "UpBlocks.0.attentions.1",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.0.attentions.2.transformer_blocks": {
-#             "label": "UpBlocks.0.attentions.2",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.1.attentions.0.transformer_blocks": {
-#             "label": "UpBlocks.1.attentions.0",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.1.attentions.1.transformer_blocks": {
-#             "label": "UpBlocks.1.attentions.1",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "up_blocks.1.attentions.2.transformer_blocks": {
-#             "label": "UpBlocks.1.attentions.2",
-#             "display": "custom.LayerField",
-#             "value": {"enabled": False, "indices": "", "dropout_visible": False, "skip_checkboxes_visible": False},
-#         },
-#         "layers_config": {"label": "Layers", "display": "output", "type": "layers_config"},
-#     }
-
-#     def execute(self, **kwargs):
-#         layer_configs = []
-
-#         for fqn, config in kwargs.items():
-#             if not config.get("enabled", False):
-#                 continue
-
-#             indices_str = config.get("indices", "")
-#             indices = []
-#             if indices_str.strip():
-#                 indices = [int(x.strip()) for x in indices_str.split(",")]
-#             else:
-#                 indices = [0]
-
-#             layer_config = LayerSkipConfig(
-#                 indices=indices,
-#                 fqn=fqn,
-#                 dropout=config.get("dropout", 1.0),
-#                 skip_attention=config.get("skip_attention", False),
-#                 skip_attention_scores=config.get("skip_attention_scores", True),
-#                 skip_ff=config.get("skip_ff", False),
-#             )
-
-#             layer_configs.append(layer_config)
-
-#         return {"layers_config": layer_configs}
