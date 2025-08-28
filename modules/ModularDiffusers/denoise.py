@@ -4,7 +4,7 @@ from typing import Any, List, Tuple
 import torch
 from diffusers import ComponentsManager
 from diffusers.models.controlnets.multicontrolnet import MultiControlNetModel
-from diffusers.modular_pipelines import BlockState, InputParam, PipelineBlock, SequentialPipelineBlocks
+from diffusers.modular_pipelines import BlockState, InputParam, ModularPipelineBlocks, SequentialPipelineBlocks
 from diffusers.modular_pipelines.stable_diffusion_xl import AUTO_BLOCKS
 
 from mellon.NodeBase import NodeBase
@@ -15,7 +15,7 @@ from . import components
 logger = logging.getLogger("mellon")
 
 
-class PreviewBlock(PipelineBlock):
+class PreviewBlock(ModularPipelineBlocks):
     model_name = "stable-diffusion-xl"
 
     @property
