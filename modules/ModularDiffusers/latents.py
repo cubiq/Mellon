@@ -12,8 +12,9 @@ from . import components
 
 logger = logging.getLogger("mellon")
 
-t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["text2img"])
-decoder_blocks = t2i_blocks.sub_blocks.pop("decode")
+auto_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["img2img"])
+decoder_blocks = auto_blocks.sub_blocks.pop("decode")
+encoder_blocks = auto_blocks.sub_blocks.pop("image_encoder")
 
 
 class LatentsPreview(NodeBase):
@@ -71,3 +72,31 @@ class DecodeLatents(NodeBase):
         image = self._decoder_node(latents=latents, output="images")[0]
 
         return {"images": image}
+
+
+class ImageEncode(NodeBase):
+    label = "Encode Image"
+    category = "sampler"
+    resizable = True
+
+    params = {
+        "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
+        "image": {"label": "Control Image", "type": "image", "display": "input"},
+        "image_latents": {"label": "Image Latents", "type": "latents", "display": "output"},
+    }
+
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self._encoder_node = encoder_blocks.init_pipeline(components_manager=components)
+
+    def execute(self, vae, image):
+        logger.debug(f" ImageEncode ({self.node_id}) received parameters:")
+        logger.debug(f" - vae: {vae}")
+        logger.debug(f" - image: {image}")
+
+        vae_component = components.get_components_by_names(names=["vae"])
+        self._encoder_node.update_components(**vae_component)
+        state = self._encoder_node(image=image)
+        image_latents = state.get("image_latents")
+
+        return {"image_latents": image_latents}

@@ -92,6 +92,20 @@ class Denoise(NodeBase):
             "type": "guider",
             "onChange": {False: ["guidance_scale"], True: []},
         },
+        "image_latents": {
+            "label": "Image Latents",
+            "type": "latents",
+            "display": "input",
+            "onChange": {False: [], True: ["strength"]},
+        },
+        "strength": {
+            "label": "Strength",
+            "type": "float",
+            "default": 0.5,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+        },
         "controlnet": {
             "label": "Controlnet",
             "type": "controlnet",
@@ -114,6 +128,8 @@ class Denoise(NodeBase):
         num_inference_steps,
         guidance_scale,
         guider=None,
+        image_latents=None,
+        strength=0.5,
         controlnet=None,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
@@ -147,6 +163,10 @@ class Denoise(NodeBase):
             self._denoise_node.update_components(guider=guider_spec)
         else:
             self._denoise_node.update_components(guider=guider)
+
+        if image_latents is not None:
+            denoise_kwargs["image_latents"] = image_latents
+            denoise_kwargs["strength"] = strength
 
         if controlnet is not None:
             denoise_kwargs.update(**controlnet["controlnet_inputs"])
