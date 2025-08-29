@@ -81,7 +81,7 @@ class ImageEncode(NodeBase):
 
     params = {
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
-        "image": {"label": "Control Image", "type": "image", "display": "input"},
+        "image": {"label": "Image", "type": "image", "display": "input"},
         "image_latents": {"label": "Image Latents", "type": "latents", "display": "output"},
     }
 
