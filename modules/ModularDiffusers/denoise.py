@@ -142,6 +142,12 @@ class Denoise(NodeBase):
         logger.debug(f" - num_inference_steps: {num_inference_steps}")
         logger.debug(f" - guidance_scale: {guidance_scale}")
 
+        def preview_callback(latents, step_index: int, scheduler_order: int):
+            if (step_index + 1) % scheduler_order == 0:
+                self.trigger_output("latents_preview", latents)
+                progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
+                self.progress(progress)
+
         unet_component = components.get_one(unet["model_id"])
         scheduler_component = components.get_one(scheduler["model_id"])
         self._denoise_node.update_components(unet=unet_component, scheduler=scheduler_component)
@@ -180,12 +186,6 @@ class Denoise(NodeBase):
                 controlnet_components = components.get_one(model_ids)
 
             self._denoise_node.update_components(controlnet=controlnet_components)
-
-        def preview_callback(latents, step_index: int, scheduler_order: int):
-            if (step_index + 1) % scheduler_order == 0:
-                self.trigger_output("latents_preview", latents)
-                progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
-                self.progress(progress)
 
         latents = self._denoise_node(
             **denoise_kwargs,
