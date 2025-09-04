@@ -285,7 +285,7 @@ class Layers(NodeBase):
         for block_name in blocks_select:
             params[block_name] = {
                 "label": block_name,
-                "display": "custom.LayerConfigField",
+                "display": "layerconfig",
                 "value": {"enabled": True, "indices": "", "dropout_visible": True, "skip_checkboxes_visible": True},
             }
         self.send_node_definition(params)

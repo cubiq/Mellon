@@ -61,6 +61,10 @@ class Denoise(NodeBase):
             "label": "Unet",
             "display": "input",
             "type": "diffusers_auto_model",
+            "onSignal": {
+                "action": "signal",
+                "target": "guider",
+            },
         },
         "scheduler": {"label": "Scheduler", "display": "input", "type": "scheduler"},
         "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
