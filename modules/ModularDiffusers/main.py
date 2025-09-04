@@ -1,4 +1,5 @@
 # ruff: noqa: F403
+from .adapters import *
 from .controlnet import *
 from .denoise import *
 from .embeddings import *

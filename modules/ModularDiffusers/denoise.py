@@ -111,6 +111,11 @@ class Denoise(NodeBase):
             "type": "controlnet",
             "display": "input",
         },
+        "ip_adapter": {
+            "label": "IP Adapter",
+            "type": "ip_adapter",
+            "display": "input",
+        },
     }
 
     def __init__(self, node_id=None):
@@ -131,6 +136,7 @@ class Denoise(NodeBase):
         image_latents=None,
         strength=0.5,
         controlnet=None,
+        ip_adapter=None,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
@@ -187,9 +193,18 @@ class Denoise(NodeBase):
 
             self._denoise_node.update_components(controlnet=controlnet_components)
 
-        latents = self._denoise_node(
-            **denoise_kwargs,
-            callback=preview_callback,
-        )
+        if ip_adapter is not None:
+            self._denoise_node.load_ip_adapter(
+                ip_adapter["model_id"], ip_adapter["subfolder"], ip_adapter["weight_name"]
+            )
+            self._denoise_node.set_ip_adapter_scale(ip_adapter["scale"])
+
+            denoise_kwargs.update(ip_adapter_image=ip_adapter["image"])  # TODO: use embeddings instead
+
+            image_encoder_id = ip_adapter["image_encoder"]
+            image_encoder_component = components.get_one(image_encoder_id)
+            self._denoise_node.update_components(image_encoder=image_encoder_component)
+
+        latents = self._denoise_node(**denoise_kwargs, callback=preview_callback)
 
         return {"latents": latents, "latents_preview": latents}

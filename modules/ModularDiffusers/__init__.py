@@ -3,7 +3,7 @@ from diffusers import ComponentsManager
 
 components = ComponentsManager()
 
-MODULE_PARSE = ["controlnet", "denoise", "embeddings", "guiders", "latents", "loaders", "schedulers"]
+MODULE_PARSE = ["adapters", "controlnet", "denoise", "embeddings", "guiders", "latents", "loaders", "schedulers"]
 
 SDXL_BLOCKS = [
     "down_blocks.1.attentions.0",
