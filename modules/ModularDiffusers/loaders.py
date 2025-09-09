@@ -8,9 +8,12 @@ from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
+import copy
 
 
 logger = logging.getLogger("mellon")
+logger.setLevel(logging.DEBUG)
+
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
@@ -61,9 +64,6 @@ def update_lora_adapters(lora_node, lora_list):
         lora_node.set_adapters(list(scales.keys()), list(scales.values()))
 
 
-# TODO: make this a user selectable option or automatic depending on VRAM
-components.enable_auto_cpu_offload(device="cuda")
-
 
 class AutoModelLoader(NodeBase):
     label = "Load Model"
@@ -76,9 +76,9 @@ class AutoModelLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "UNet2DConditionModel": "UNet",
-                "AutoencoderKL": "VAE",
-                "ControlNetModel": "ControlNet",
+                "unet": "UNet",
+                "vae": "VAE",
+                "controlnet": "ControlNet",
             },
             "onChange": "set_filters",
         },
@@ -118,9 +118,9 @@ class AutoModelLoader(NodeBase):
 
         default_values = {
             "": "",
-            "UNet2DConditionModel": "UNet",
-            "AutoencoderKL": "VAE",
-            "ControlNetModel": "ControlNet",
+            "unet": "UNet",
+            "vae": "VAE",
+            "controlnet": "ControlNet",
         }
 
         self.set_field_params(
@@ -248,11 +248,13 @@ class ModelsLoader(NodeBase):
         """)
 
         # TODO: add custom text encoders (depending on architecture)
-        components_to_update = {
-            "unet": components.get_one(unet["model_id"]) if unet else None,
-            "vae": components.get_one(vae["model_id"]) if vae else None,
-        }
-        components_to_update = {k: v for k, v in components_to_update.items() if v is not None}
+        components_to_update = {}
+
+        if unet:
+            components_to_update.update(components.get_components_by_ids(ids=[unet["model_id"]], return_dict_with_names=True))
+        if vae:
+            components_to_update.update(components.get_components_by_ids(ids=[vae["model_id"]], return_dict_with_names=True))
+
 
         if isinstance(repo_id, dict):
             real_repo_id = repo_id.get("value", repo_id)
@@ -260,14 +262,23 @@ class ModelsLoader(NodeBase):
         else:
             real_repo_id = ""
 
+        if not components._auto_offload_enabled or components._auto_offload_device != device:
+            components.enable_auto_cpu_offload(device=device)
+
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
         )
 
-        # YIYI/Alvaro TODO: do we need to limit to these components?
-        ALL_COMPONENTS = ["unet", "vae", "scheduler", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+        ALL_COMPONENTS = self.loader.pretrained_component_names
+
+        text_node = self.loader.blocks.sub_blocks["text_encoder"].init_pipeline(real_repo_id)
+        text_encoder_names = text_node.pretrained_component_names
+
         components_to_load = [c for c in ALL_COMPONENTS if c not in components_to_update]
         components_to_reload = []
+
+        denoiser_options = ["unet", "transformer"]
+        denoiser_name = next((option for option in denoiser_options if option in ALL_COMPONENTS), None)
 
         for comp_name in components_to_load:
             comp_spec = self.loader.get_component_spec(comp_name)
@@ -298,20 +309,25 @@ class ModelsLoader(NodeBase):
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {
-            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name="unet"),
+            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
             "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
             "text_encoders": {
                 k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
-                for k in ["text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+                for k in text_encoder_names
             },
             "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
         }
+        
+        # add repo_id to all models info dicts
+        for k, v in loaded_components.items():
+            v["repo_id"] = real_repo_id
 
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
 
         return loaded_components
 
 
+# YiYi Notes: rename this to IPAdapter Image Encoder?
 class ImageEncoder(NodeBase):
     label = "Image Encoder"
     category = "adapters"

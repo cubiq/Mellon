@@ -4,8 +4,7 @@ from typing import Any, List, Tuple
 import torch
 from diffusers import ComponentsManager
 from diffusers.models.controlnets.multicontrolnet import MultiControlNetModel
-from diffusers.modular_pipelines import BlockState, InputParam, ModularPipelineBlocks, SequentialPipelineBlocks
-from diffusers.modular_pipelines.stable_diffusion_xl import AUTO_BLOCKS
+from diffusers.modular_pipelines import BlockState, InputParam, ModularPipelineBlocks, LoopSequentialPipelineBlocks, ModularPipeline
 
 from mellon.NodeBase import NodeBase
 
@@ -16,7 +15,6 @@ logger = logging.getLogger("mellon")
 
 
 class PreviewBlock(ModularPipelineBlocks):
-    model_name = "stable-diffusion-xl"
 
     @property
     def inputs(self) -> List[Tuple[str, Any]]:
@@ -30,26 +28,22 @@ class PreviewBlock(ModularPipelineBlocks):
         return components, block_state
 
 
-# use auto blocks to make the pipeline conditional to the inputs
-t2i_blocks = SequentialPipelineBlocks.from_blocks_dict(AUTO_BLOCKS)
+def insert_preview_block(pipeline):
+    """Insert preview_block into all LoopSequentialPipelineBlocks with 'denoise' in name."""
 
-# since we already encoded the prompts, remove this block
-text_blocks = t2i_blocks.sub_blocks.pop("text_encoder")
+    # new block so we can preview the generation
+    preview_block = PreviewBlock()
 
-# we're going to decode the latents later, remove this block too
-decoder_blocks = t2i_blocks.sub_blocks.pop("decode")
-
-# new block so we can preview the generation
-preview_block = PreviewBlock()
-
-# insert the preview block after the end of all the auto denoiser sub_blocks
-for sub_blocks_name, sub_blocks in t2i_blocks.sub_blocks["denoise"].sub_blocks.items():
-    if sub_blocks_name == "controlnet_denoise":
-        # this case is special, it has an additional level of sub_blocks
-        sub_blocks.sub_blocks["inpaint_controlnet_denoise"].sub_blocks.insert("preview_block", preview_block, 3)
-        sub_blocks.sub_blocks["controlnet_denoise"].sub_blocks.insert("preview_block", preview_block, 3)
-    else:
-        sub_blocks.sub_blocks.insert("preview_block", preview_block, 3)
+    def insert_preview_block_recursive(blocks, blocks_name, preview_block):
+    
+        if hasattr(blocks, 'sub_blocks'):
+            if isinstance(blocks, LoopSequentialPipelineBlocks) and 'denoise' in blocks_name.lower():
+                blocks.sub_blocks.insert("preview_block", preview_block, len(blocks.sub_blocks))
+            else:
+                for sub_block_name, sub_block in blocks.sub_blocks.items():
+                    insert_preview_block_recursive(sub_block, sub_block_name, preview_block)
+    
+    insert_preview_block_recursive(pipeline.blocks.sub_blocks["denoise"], "", preview_block)
 
 
 class Denoise(NodeBase):
@@ -100,7 +94,7 @@ class Denoise(NodeBase):
             "label": "Image Latents",
             "type": "latents",
             "display": "input",
-            "onChange": {False: [], True: ["strength"]},
+            "onChange": {False: ["height", "width"], True: ["strength"]},
         },
         "strength": {
             "label": "Strength",
@@ -124,14 +118,12 @@ class Denoise(NodeBase):
 
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._denoise_node = t2i_blocks.init_pipeline(components_manager=components)
+        self._denoise_node = None
 
     def execute(
         self,
         unet,
         scheduler,
-        width,
-        height,
         embeddings,
         seed,
         num_inference_steps,
@@ -141,6 +133,8 @@ class Denoise(NodeBase):
         strength=0.5,
         controlnet=None,
         ip_adapter=None,
+        width=None,
+        height=None,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
@@ -152,17 +146,45 @@ class Denoise(NodeBase):
         logger.debug(f" - num_inference_steps: {num_inference_steps}")
         logger.debug(f" - guidance_scale: {guidance_scale}")
 
+        device = unet["execution_device"]
+        repo_id = unet["repo_id"]
+        # derive auto blocks from repo_id
+        auto_blocks = ModularPipeline.from_pretrained(repo_id).blocks
+        
+        # YiYi: hakcy code, refactor and standardize how blocks are structured in modular diffusers source code
+        for block_name in auto_blocks.block_names:
+            if "decode" in block_name:
+                auto_blocks.sub_blocks.pop(block_name)
+                logger.debug(f"Popped {block_name}")
+
+        for block_name in auto_blocks.block_names:
+            if block_name == "input":
+                break
+            else:
+                auto_blocks.sub_blocks.pop(block_name)
+                logger.debug(f"Popped {block_name}")
+        
+        self._denoise_node = auto_blocks.init_pipeline(repo_id, components_manager=components)
+        
+        insert_preview_block(self._denoise_node)
+
         def preview_callback(latents, step_index: int, scheduler_order: int):
             if (step_index + 1) % scheduler_order == 0:
                 self.trigger_output("latents_preview", latents)
                 progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
                 self.progress(progress)
 
-        unet_component = components.get_one(unet["model_id"])
-        scheduler_component = components.get_one(scheduler["model_id"])
-        self._denoise_node.update_components(unet=unet_component, scheduler=scheduler_component)
+        unet_component_dict = components.get_components_by_ids(
+            ids=[unet["model_id"]],
+            return_dict_with_names=True
+        )
+        scheduler_component_dict = components.get_components_by_ids(
+            ids=[scheduler["model_id"]],
+            return_dict_with_names=True
+        )
+        self._denoise_node.update_components(**scheduler_component_dict, **unet_component_dict)
 
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=device).manual_seed(seed)
 
         denoise_kwargs = {
             **embeddings,
@@ -170,7 +192,6 @@ class Denoise(NodeBase):
             "generator": generator,
             "width": width,
             "height": height,
-            "output": "latents",
         }
 
         if guider is None:
@@ -209,6 +230,11 @@ class Denoise(NodeBase):
             image_encoder_component = components.get_one(image_encoder_id)
             self._denoise_node.update_components(image_encoder=image_encoder_component)
 
-        latents = self._denoise_node(**denoise_kwargs, callback=preview_callback)
+        state = self._denoise_node(**denoise_kwargs, callback=preview_callback)
+        latents_dict = {
+            "latents": state.get("latents"),
+            "height": state.get("height"),
+            "width": state.get("width"),
+        }
 
-        return {"latents": latents, "latents_preview": latents}
+        return {"latents": latents_dict, "latents_preview": latents_dict["latents"]}
