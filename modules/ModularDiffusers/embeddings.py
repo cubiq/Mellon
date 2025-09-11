@@ -16,7 +16,7 @@ class EncodePrompt(NodeBase):
     category = "embedding"
     resizable = True
     params = {
-        "text_encoders": {"label": "Text Encoders", "type": "text_encoders", "display": "input"},
+        "text_encoders": {"label": "Text Encoders", "type": "diffusers_auto_models", "display": "input"},
         "prompt": {"label": "Prompt", "type": "string", "default": "", "display": "textarea"},
         "image": {"label": "Image", "type": "image", "display": "input"},
         "negative_prompt": {"label": "Negative Prompt", "type": "string", "default": "", "display": "textarea"},
@@ -61,7 +61,6 @@ class EncodePrompt(NodeBase):
         text_state = self._text_encoder_node(**text_node_kwargs)
         # YiYi TODO: update in diffusers so that always use denoiser_input_fields
         text_embeddings = text_state.get_by_kwargs("denoiser_input_fields")
-        text_embeddings.update(text_state.get_by_kwargs("guider_input_fields"))
 
 
         return {"embeddings": text_embeddings}

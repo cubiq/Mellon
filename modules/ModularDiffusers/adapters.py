@@ -37,7 +37,7 @@ class Lora(NodeBase):
         },
         "lora": {
             "label": "Lora",
-            "type": "lora",
+            "type": "custom_lora",
             "display": "output",
         },
     }
@@ -82,9 +82,9 @@ class IPAdapter(NodeBase):
         "subfolder": {"label": "Subfolder", "type": "string", "default": "sdxl_models"},
         "weight_name": {"label": "Weight Name", "type": "string", "default": "ip-adapter_sdxl_vit-h.safetensors"},
         "scale": {"label": "Scale", "type": "float", "default": 1.0, "min": 0, "max": 1, "step": 0.01},
-        "image_encoder": {"label": "Image Encoder", "type": "image_encoder", "display": "input"},
+        "image_encoder": {"label": "Image Encoder", "type": "diffusers_auto_model", "display": "input"},
         "image": {"label": "Image", "display": "input", "type": "image"},
-        "ip_adapter": {"label": "IP-Adapter", "display": "output", "type": "ip_adapter"},
+        "ip_adapter": {"label": "IP-Adapter", "display": "output", "type": "custom_ip_adapter"},
     }
 
     def execute(self, model_path, weight_name, scale, image_encoder, image, subfolder=None):

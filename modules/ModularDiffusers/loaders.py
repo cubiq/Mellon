@@ -198,11 +198,11 @@ class ModelsLoader(NodeBase):
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
         "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
-        "lora_list": {"label": "Lora", "display": "input", "type": "lora"},
-        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "text_encoders"},
+        "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
+        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "diffusers_auto_models"},
         "unet_out": {"label": "UNet", "display": "output", "type": "diffusers_auto_model"},
         "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
-        "scheduler": {"label": "Scheduler", "display": "output", "type": "scheduler"},
+        "scheduler": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def __init__(self, node_id=None):
@@ -345,7 +345,7 @@ class ImageEncoder(NodeBase):
             },
         },
         "subfolder": {"label": "Subfolder", "type": "string", "default": "models/image_encoder"},
-        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "image_encoder"},
+        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def execute(self, model_path, subfolder=None):
@@ -364,4 +364,4 @@ class ImageEncoder(NodeBase):
         image_encoder = image_encoder_spec.load(torch_dtype=torch.float16)
         image_encoder_id = components.add(model_name, image_encoder, collection=self.node_id)
 
-        return {"image_encoder": image_encoder_id}
+        return {"image_encoder": components.get_model_info(image_encoder_id)}

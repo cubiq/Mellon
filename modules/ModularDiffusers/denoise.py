@@ -60,7 +60,7 @@ class Denoise(NodeBase):
                 "target": "guider",
             },
         },
-        "scheduler": {"label": "Scheduler", "display": "input", "type": "scheduler"},
+        "scheduler": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
         "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
         "latents": {"label": "Latents", "type": "latents", "display": "output"},
         "width": {"label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8},
@@ -87,7 +87,7 @@ class Denoise(NodeBase):
         "guider": {
             "label": "Guider",
             "display": "input",
-            "type": "guider",
+            "type": "custom_guider",
             "onChange": {False: ["guidance_scale"], True: []},
         },
         "image_latents": {
@@ -106,12 +106,12 @@ class Denoise(NodeBase):
         },
         "controlnet": {
             "label": "Controlnet",
-            "type": "controlnet",
+            "type": "custom_controlnet",
             "display": "input",
         },
         "ip_adapter": {
             "label": "IP Adapter",
-            "type": "ip_adapter",
+            "type": "custom_ip_adapter",
             "display": "input",
         },
     }
@@ -150,21 +150,9 @@ class Denoise(NodeBase):
         repo_id = unet["repo_id"]
         # derive auto blocks from repo_id
         auto_blocks = ModularPipeline.from_pretrained(repo_id).blocks
+        denoise_blocks = auto_blocks.sub_blocks.pop("denoise")
         
-        # YiYi: hakcy code, refactor and standardize how blocks are structured in modular diffusers source code
-        for block_name in auto_blocks.block_names:
-            if "decode" in block_name:
-                auto_blocks.sub_blocks.pop(block_name)
-                logger.debug(f"Popped {block_name}")
-
-        for block_name in auto_blocks.block_names:
-            if block_name == "input":
-                break
-            else:
-                auto_blocks.sub_blocks.pop(block_name)
-                logger.debug(f"Popped {block_name}")
-        
-        self._denoise_node = auto_blocks.init_pipeline(repo_id, components_manager=components)
+        self._denoise_node = denoise_blocks.init_pipeline(repo_id, components_manager=components)
         
         insert_preview_block(self._denoise_node)
 
@@ -226,8 +214,8 @@ class Denoise(NodeBase):
 
             denoise_kwargs.update(ip_adapter_image=ip_adapter["image"])  # TODO: use embeddings instead
 
-            image_encoder_id = ip_adapter["image_encoder"]
-            image_encoder_component = components.get_one(image_encoder_id)
+            image_encoder_input = ip_adapter["image_encoder"]
+            image_encoder_component = components.get_one(image_encoder_input["model_id"])
             self._denoise_node.update_components(image_encoder=image_encoder_component)
 
         state = self._denoise_node(**denoise_kwargs, callback=preview_callback)
