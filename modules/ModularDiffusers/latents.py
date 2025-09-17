@@ -1,8 +1,7 @@
 import logging
 
 import torch
-from diffusers.modular_pipelines import SequentialPipelineBlocks
-from diffusers.modular_pipelines.stable_diffusion_xl import ALL_BLOCKS
+from diffusers.modular_pipelines import ModularPipeline
 from PIL import Image
 
 from mellon.NodeBase import NodeBase
@@ -12,11 +11,8 @@ from . import components
 
 logger = logging.getLogger("mellon")
 
-auto_blocks = SequentialPipelineBlocks.from_blocks_dict(ALL_BLOCKS["img2img"])
-decoder_blocks = auto_blocks.sub_blocks.pop("decode")
-encoder_blocks = auto_blocks.sub_blocks.pop("image_encoder")
 
-
+#YiYi Notes: this is not working for qwen/flux as latents needs to be unpacked first
 class LatentsPreview(NodeBase):
     label = "Latents Preview"
     category = "image"
@@ -60,16 +56,26 @@ class DecodeLatents(NodeBase):
 
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._decoder_node = decoder_blocks.init_pipeline(components_manager=components)
+        self._decoder_node = None
 
     def execute(self, vae, latents):
         logger.debug(f" DecodeLatents ({self.node_id}) received parameters:")
         logger.debug(f" - vae: {vae}")
-        logger.debug(f" - latents: {latents.shape}")
+        logger.debug(f" - latents: {latents['latents'].shape}")
 
-        vae_component = components.get_one(vae["model_id"])
-        self._decoder_node.update_components(vae=vae_component)
-        image = self._decoder_node(latents=latents, output="images")[0]
+        vae = vae.copy()
+        repo_id = vae.pop("repo_id")
+        decoder_blocks = ModularPipeline.from_pretrained(repo_id).blocks.sub_blocks.pop("decode")
+        self._decoder_node = decoder_blocks.init_pipeline(repo_id, components_manager=components)
+
+        vae_component_dict = components.get_components_by_ids(
+            ids=[vae["model_id"]],
+            return_dict_with_names=True
+        )
+        self._decoder_node.update_components(**vae_component_dict)
+        image = self._decoder_node(**latents, output="images")[0]
+
+        logger.debug(f" components: {components}")
 
         return {"images": image}
 
@@ -87,15 +93,27 @@ class ImageEncode(NodeBase):
 
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._encoder_node = encoder_blocks.init_pipeline(components_manager=components)
+        self._encoder_node = None
 
     def execute(self, vae, image):
         logger.debug(f" ImageEncode ({self.node_id}) received parameters:")
         logger.debug(f" - vae: {vae}")
         logger.debug(f" - image: {image}")
 
-        vae_component = components.get_components_by_names(names=["vae"])
-        self._encoder_node.update_components(**vae_component)
+        vae = vae.copy()
+        repo_id = vae.pop("repo_id")
+
+        # YiYi TODO: update in diffusers so vae encoder block name is always "vae_encoder"
+        pipeline = ModularPipeline.from_pretrained(repo_id)
+        encoder_block_name = next((name for name in pipeline.blocks.block_names if "encode" in name.lower() and "text" not in name.lower()), None)
+        encoder_blocks = pipeline.blocks.sub_blocks.pop(encoder_block_name)
+        self._encoder_node = encoder_blocks.init_pipeline(repo_id, components_manager=components)
+
+        vae_component_dict = components.get_components_by_ids(
+            ids=[vae["model_id"]],
+            return_dict_with_names=True
+        )
+        self._encoder_node.update_components(**vae_component_dict)
         state = self._encoder_node(image=image)
         image_latents = state.get("image_latents")
 

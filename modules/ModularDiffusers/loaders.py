@@ -1,3 +1,4 @@
+import copy
 import logging
 
 import torch
@@ -11,6 +12,7 @@ from . import components
 
 
 logger = logging.getLogger("mellon")
+logger.setLevel(logging.DEBUG)
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
@@ -61,10 +63,6 @@ def update_lora_adapters(lora_node, lora_list):
         lora_node.set_adapters(list(scales.keys()), list(scales.values()))
 
 
-# TODO: make this a user selectable option or automatic depending on VRAM
-components.enable_auto_cpu_offload(device="cuda")
-
-
 class AutoModelLoader(NodeBase):
     label = "Load Model"
     category = "loader"
@@ -76,9 +74,9 @@ class AutoModelLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "UNet2DConditionModel": "UNet",
-                "AutoencoderKL": "VAE",
-                "ControlNetModel": "ControlNet",
+                "unet": "UNet",
+                "vae": "VAE",
+                "controlnet": "ControlNet",
             },
             "onChange": "set_filters",
         },
@@ -118,9 +116,9 @@ class AutoModelLoader(NodeBase):
 
         default_values = {
             "": "",
-            "UNet2DConditionModel": "UNet",
-            "AutoencoderKL": "VAE",
-            "ControlNetModel": "ControlNet",
+            "unet": "UNet",
+            "vae": "VAE",
+            "controlnet": "ControlNet",
         }
 
         self.set_field_params(
@@ -172,8 +170,17 @@ class ModelsLoader(NodeBase):
         "model_type": {
             "label": "Model Type",
             "type": "string",
-            "options": {"": "", "StableDiffusionXLModularPipeline": "Stable Diffusion XL"},
-            "onChange": ["set_filters", {"action": "signal", "target": "unet_out"}],
+            "options": {
+                "": "",
+                "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
+                "QwenImageModularPipeline": "Qwen Image",
+                "QwenImageEditModularPipeline": "Qwen Image Edit",
+            },
+            "onChange": [
+                "set_filters",
+                {"action": "signal", "target": "unet_out"},
+                {"action": "signal", "target": "text_encoders"},
+            ],
         },
         "repo_id": {
             "label": "Repository ID",
@@ -196,13 +203,13 @@ class ModelsLoader(NodeBase):
             "postProcess": str_to_dtype,
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
-        "unet": {"label": "Unet", "display": "input", "type": "diffusers_auto_model"},
+        "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
-        "lora_list": {"label": "Lora", "display": "input", "type": "lora"},
-        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "text_encoders"},
-        "unet_out": {"label": "UNet", "display": "output", "type": "diffusers_auto_model"},
+        "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
+        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "diffusers_auto_models"},
+        "unet_out": {"label": "Denoise Model", "display": "output", "type": "diffusers_auto_model"},
         "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
-        "scheduler": {"label": "Scheduler", "display": "output", "type": "scheduler"},
+        "scheduler": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def __init__(self, node_id=None):
@@ -219,9 +226,20 @@ class ModelsLoader(NodeBase):
     def set_filters(self, values, ref):
         model_type = values.get("model_type", "")
 
+        filters = []
+
+        if model_type == "StableDiffusionXLModularPipeline":
+            filters = ["StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"]
+        elif model_type == "QwenImageModularPipeline":
+            filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
+        elif model_type == "QwenImageEditModularPipeline":
+            filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
+
         default_values = {
             "": "",
-            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+            "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
+            "QwenImageModularPipeline": "Qwen/Qwen-Image",
+            "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
         }
 
         self.set_field_params(
@@ -231,7 +249,7 @@ class ModelsLoader(NodeBase):
                 "value": {"source": "hub", "value": default_values[model_type]},
                 "fieldOptions": {
                     "filter": {
-                        "hub": {"className": [model_type]},
+                        "hub": {"className": filters},
                     },
                 },
             },
@@ -248,11 +266,16 @@ class ModelsLoader(NodeBase):
         """)
 
         # TODO: add custom text encoders (depending on architecture)
-        components_to_update = {
-            "unet": components.get_one(unet["model_id"]) if unet else None,
-            "vae": components.get_one(vae["model_id"]) if vae else None,
-        }
-        components_to_update = {k: v for k, v in components_to_update.items() if v is not None}
+        components_to_update = {}
+
+        if unet:
+            components_to_update.update(
+                components.get_components_by_ids(ids=[unet["model_id"]], return_dict_with_names=True)
+            )
+        if vae:
+            components_to_update.update(
+                components.get_components_by_ids(ids=[vae["model_id"]], return_dict_with_names=True)
+            )
 
         if isinstance(repo_id, dict):
             real_repo_id = repo_id.get("value", repo_id)
@@ -260,14 +283,23 @@ class ModelsLoader(NodeBase):
         else:
             real_repo_id = ""
 
+        if not components._auto_offload_enabled or components._auto_offload_device != device:
+            components.enable_auto_cpu_offload(device=device)
+
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
         )
 
-        # YIYI/Alvaro TODO: do we need to limit to these components?
-        ALL_COMPONENTS = ["unet", "vae", "scheduler", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+        ALL_COMPONENTS = self.loader.pretrained_component_names
+
+        text_node = self.loader.blocks.sub_blocks["text_encoder"].init_pipeline(real_repo_id)
+        text_encoder_names = text_node.pretrained_component_names
+
         components_to_load = [c for c in ALL_COMPONENTS if c not in components_to_update]
         components_to_reload = []
+
+        denoiser_options = ["unet", "transformer"]
+        denoiser_name = next((option for option in denoiser_options if option in ALL_COMPONENTS), None)
 
         for comp_name in components_to_load:
             comp_spec = self.loader.get_component_spec(comp_name)
@@ -298,20 +330,25 @@ class ModelsLoader(NodeBase):
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {
-            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name="unet"),
+            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
             "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
             "text_encoders": {
                 k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
-                for k in ["text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]
+                for k in text_encoder_names
             },
             "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
         }
+
+        # add repo_id to all models info dicts
+        for k, v in loaded_components.items():
+            v["repo_id"] = real_repo_id
 
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
 
         return loaded_components
 
 
+# YiYi Notes: rename this to IPAdapter Image Encoder?
 class ImageEncoder(NodeBase):
     label = "Image Encoder"
     category = "adapters"
@@ -329,7 +366,7 @@ class ImageEncoder(NodeBase):
             },
         },
         "subfolder": {"label": "Subfolder", "type": "string", "default": "models/image_encoder"},
-        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "image_encoder"},
+        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def execute(self, model_path, subfolder=None):
@@ -348,4 +385,4 @@ class ImageEncoder(NodeBase):
         image_encoder = image_encoder_spec.load(torch_dtype=torch.float16)
         image_encoder_id = components.add(model_name, image_encoder, collection=self.node_id)
 
-        return {"image_encoder": image_encoder_id}
+        return {"image_encoder": components.get_model_info(image_encoder_id)}

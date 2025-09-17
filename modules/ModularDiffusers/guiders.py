@@ -183,7 +183,7 @@ class Guider(NodeBase):
         "guider_out": {
             "label": "Guider",
             "display": "output",
-            "type": "guider",
+            "type": "custom_guider",
             "onSignal": {
                 "action": "signal",
                 "target": "layers_config",

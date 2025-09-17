@@ -294,7 +294,7 @@ class Scheduler(NodeBase):
     resizable = True
     skipParamsCheck = True
     params = {
-        "scheduler_in": {"label": "Scheduler", "display": "input", "type": "scheduler"},
+        "scheduler_in": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
         "scheduler": {
             "label": "Scheduler",
             "fieldOptions": {"loading": True},
@@ -319,7 +319,7 @@ class Scheduler(NodeBase):
             "value": "EulerDiscreteScheduler",
             "onChange": "updateNode",
         },
-        "scheduler_out": {"label": "Scheduler", "display": "output", "type": "scheduler"},
+        "scheduler_out": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
         "prediction_type": {
             "label": "Prediction Type",
             "type": "string",
