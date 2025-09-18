@@ -79,6 +79,7 @@ class DataViewer(NodeBase):
 class TextValue(NodeBase):
     label = "Text Value"
     category = "primitive"
+    resizable = True
     params = {
         "text": {
             "label": "Text",
@@ -105,3 +106,80 @@ class ToList(NodeBase):
     
     def execute(self, **kwargs):
         return {"list": kwargs["item"]}
+
+
+
+class TestSenderNode(NodeBase):
+    label = "Signal Sender"
+    category = "loader"
+    resizable = True
+    skipParamsCheck = True
+    params = {
+        "model_type": {
+            "label": "Model Type",
+            "type": "string",
+            "options": {
+                "": "",
+                "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
+                "QwenImageModularPipeline": "Qwen Image",
+                "QwenImageEditModularPipeline": "Qwen Image Edit",
+            },
+            "onChange": [
+                "set_filters",
+                {"action": "signal", "target": "unet_out"},
+                {"action": "signal", "target": "text_encoders"},
+            ],
+        },
+        "unet_out": {"label": "UNet", "display": "output", "type": "diffusers_auto_model"},
+        "text_encoders": {"label": "Text Encoders", "display": "output", "type": "diffusers_auto_models"},
+    }
+
+    def set_filters(self, values, ref):
+        model_type = values.get("model_type", "")
+        print(model_type)
+
+    def execute(self, text_encoders, prompt, image, negative_prompt):
+        return None
+
+class TestReceiveNodeThree(NodeBase):
+    label = "Signal Receiver Three"
+    category = "embedding"
+    resizable = True
+    skipParamsCheck = True
+    params = {
+        "text_encoders": {
+            "label": "Text Encoders",
+            "display": "input",
+            "type": "diffusers_auto_models",
+            "onSignal": [
+                {
+                    "action": "value",
+                    "target": "model_type",
+                    "data": {
+                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                        "QwenImageModularPipeline": "QwenImageModularPipeline",
+                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                    },
+                },
+                {"action": "exec", "data": "test_function"},
+            ],
+        },
+        "model_type": {"label": "Model Type", "type": "string", "default": "", "hidden": True},
+        "embeddings": {"label": "Text Embeddings", "display": "output", "type": "embeddings"},
+    }
+
+    def test_function(self, values, ref):
+        params = {}
+        model_type = values.get("model_type", "")
+
+        if model_type == "":
+            return None
+        elif model_type == "StableDiffusionXLModularPipeline":
+            params.update({"new_param": {"label": "New Param", "type": "string", "default": ""}})
+        elif model_type == "QwenImageModularPipeline":
+            params.update({"another_param": {"label": "Another Param", "type": "number", "default": 0}})
+
+        self.send_node_definition(params)
+
+    def execute(self, text_encoders, prompt, image, negative_prompt):
+        return None

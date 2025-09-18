@@ -389,7 +389,7 @@ class WebServer:
 
     async def index(self, _):
         response = web.FileResponse('web/index.html')
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
@@ -407,7 +407,7 @@ class WebServer:
         
         response = web.FileResponse(fileName)
         #response.headers["Content-Type"] = "application/javascript"
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         
@@ -847,7 +847,7 @@ class WebServer:
             data_param_key = params[p].get('sourceKey')
 
             # the field is a UI element, used mostly to display the data in the UI
-            if 'display' in params[p] and params[p]['display'] in ['ui_group', 'ui_text', 'ui_image', 'ui_imagecompare', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
+            if 'display' in params[p] and params[p]['display'] in ['ui_group', 'ui_text', 'ui_image', 'ui_imagecompare', 'ui_areaselect', 'ui_audio', 'ui_video', 'ui_3d', 'ui_label', 'ui_button']:
                 ui_fields[p] = data_param_key if data_param_key else None
 
             # the field is an input that gets its value from an output of another node

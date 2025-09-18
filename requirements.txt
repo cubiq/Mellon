@@ -9,5 +9,4 @@ protobuf
 sentencepiece
 einops
 xformers
-spandrel
 kornia

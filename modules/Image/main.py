@@ -187,7 +187,7 @@ class Preview(NodeBase):
         image = kwargs["image"]
         if image is None:
             return {"output": None}
-        
+
         # if image is an Image or an array of Images, pass it to the preview
         if isinstance(image, Image.Image) or (isinstance(image, list) and len(image) > 0 and isinstance(image[0], Image.Image)):
             return {"output": image}
@@ -262,8 +262,7 @@ class Resize(NodeBase):
         return {"output": image}
 
 
-
-class ImageCompare(NodeBase):
+class Compare(NodeBase):
     label = "Image Compare"
     category = "image"
     resizable = True
@@ -300,3 +299,50 @@ class ImageCompare(NodeBase):
         return {
             "image_list": [image_1, image_2]
         }
+
+class ApplyMask(NodeBase):
+    label = "Apply Mask"
+    category = "image"
+    params = {
+        "image": {
+            "label": "Image",
+            "display": "input",
+            "type": "image",
+        },
+        "mask": {
+            "label": "Mask",
+            "display": "input",
+            "type": "image",
+        },
+        "output": {
+            "label": "Output",
+            "display": "output",
+            "type": "image",
+        }
+    }
+
+    def execute(self, **kwargs):
+        image = kwargs.get("image")
+        mask = kwargs.get("mask")
+
+        if image is None or mask is None:
+            return {"output": None}
+
+        image = [image] if not isinstance(image, list) else image
+        mask = [mask] if not isinstance(mask, list) else mask
+
+        if len(mask) < len(image):
+            diff = len(image) - len(mask)
+            mask = mask + [mask[-1]] * diff
+        elif len(mask) > len(image):
+            mask = mask[:len(image)]
+
+        # Apply the mask to the image
+        output = []
+        for img, msk in zip(image, mask):
+            img = img.convert("RGBA")
+            msk = msk.convert("L")
+            img.putalpha(msk)
+            output.append(img)
+
+        return {"output": output}
