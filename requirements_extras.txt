@@ -1,0 +1,3 @@
+spandrel
+transparent-background
+rembg[gpu]

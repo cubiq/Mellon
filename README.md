@@ -11,22 +11,23 @@ Mellon is a client/server application to easily interface with ML tools with a f
 ```bash
 git clone https://github.com/cubiq/Mellon.git
 cd Mellon
-python -m venv venv --prompt=Mellon
-source venv/bin/activate
-pip install --upgrade pip
-pip install wheel
+python -m venv .venv --prompt=Mellon
+source .venv/bin/activate
+pip install -U pip
+pip install -U wheel
+pip install -U setuptools
 ```
 
 Install [pytorch](https://pytorch.org/get-started/locally/) for your platform. Generally with:
 
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 Finally install the dependencies.
 
 ```bash
-pip install -r requirements.txt
+pip install -U -r requirements.txt
 ```
 
 Run the application with `python main.py` or --on Linux-- with the script `./run.sh`.
@@ -51,12 +52,42 @@ Remember you need `python3.x-devel` installed on your system to compile from sou
 
 **Note:** Mellon has been tested on python **3.12**.
 
+### Additional functionality
+
+Additional libraries can be installed with:
+
+```bash
+pip install -U -r requirements_extras.txt
+```
+
+You are very likely going to need them but in the spirit of keeping the core dependencies to the bare minimum I'm putting extra features in an optional requirement file. You can also check `requirements_extras.txt` and cherry pick what you need.
+
 ### Quantization
 
 Quantization often requires additional packages. Check the `requirements_quant.txt` file for a list of available quantizations. If you want to install them all execute:
 
 ```bash
-pip install -r requirements_quant.txt
+pip install -U -r requirements_quant.txt
 ```
 
 For **[Nunchaku](https://github.com/nunchaku-tech/nunchaku)** follow the installation [instructions](https://nunchaku.tech/docs/nunchaku/installation/installation.html) for your platform.
+
+## Upgrading
+
+To upgrade Mellon just pull the repository:
+
+```
+cd Mellon
+git pull
+```
+
+To upgrade the python libraries, activate the environment and follow the pip install order as per the installation
+
+```
+source .venv/bin/activate
+pip install -U pip
+pip install -U wheel
+pip install -U setuptools
+...
+...
+```
