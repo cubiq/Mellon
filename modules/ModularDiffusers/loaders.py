@@ -74,7 +74,7 @@ class AutoModelLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "unet": "UNet",
+                "denoise": "Denoise Model",
                 "vae": "VAE",
                 "controlnet": "ControlNet",
             },
@@ -114,11 +114,20 @@ class AutoModelLoader(NodeBase):
     def set_filters(self, values, ref):
         model_type = values.get("model_type", "")
 
+        filters = []
+
+        if model_type == "denoise":
+            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel"]
+        elif model_type == "vae":
+            filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
+        elif model_type == "controlnet":
+            filters = ["ControlNetModel", "QwenImageControlNetModel"]
+
         default_values = {
             "": "",
-            "unet": "UNet",
-            "vae": "VAE",
-            "controlnet": "ControlNet",
+            "denoise": "stabilityai/stable-diffusion-xl-base-1.0",
+            "vae": "stabilityai/stable-diffusion-xl-base-1.0",
+            "controlnet": "diffusers/controlnet-depth-sdxl-1.0",
         }
 
         self.set_field_params(
@@ -128,7 +137,7 @@ class AutoModelLoader(NodeBase):
                 "value": {"source": "hub", "value": default_values[model_type]},
                 "fieldOptions": {
                     "filter": {
-                        "hub": {"className": [model_type]},
+                        "hub": {"className": filters},
                     },
                 },
             },

@@ -228,30 +228,6 @@ class ControlnetUnion(NodeBase):
         return {"controlnet": controlnet}
 
 
-# TODO: once we have this defined, one of these functions should be removed
-def repo_id_to_mellon_node_config(repo_id, node_type=None):
-    print(f" inside repo_id_to_mellon_node_config: {repo_id}")
-
-    try:
-        pipeline = ModularPipeline.from_pretrained(repo_id)
-        from diffusers.modular_pipelines.mellon_node_utils import ModularMellonNodeRegistry
-
-        registry = ModularMellonNodeRegistry()
-        node_type_config = registry.get(pipeline.__class__)[node_type]
-    except Exception as e:
-        logger.debug(f" Faled to load the node from {repo_id}: {e}")
-        return None, None
-
-    node_type_blocks = None
-    if pipeline is not None and node_type_config is not None and node_type_config.blocks_names:
-        blocks_dict = {
-            name: block for name, block in pipeline.blocks.sub_blocks.items() if name in node_type_config.blocks_names
-        }
-        node_type_blocks = SequentialPipelineBlocks.from_blocks_dict(blocks_dict)
-
-    return node_type_blocks, node_type_config
-
-
 def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
     print(f" inside pipeline_class_to_mellon_node_config: {pipeline_class}")
 
@@ -285,7 +261,7 @@ class DynamicControlnet(NodeBase):
 
     params = {
         "model_type": {"label": "Model Type", "type": "string", "default": "", "hidden": True},
-        "controlnet": {
+        "controlnet_out": {
             "label": "Controlnet",
             "display": "output",
             "type": "custom_controlnet",
@@ -304,19 +280,26 @@ class DynamicControlnet(NodeBase):
         },
     }
 
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self._model_type = ""
+        self._pipeline_class = None
+
     def updateNode(self, values, ref):
         # default params: repo_id
         controlnet_params = {}
         model_type = values.get("model_type", "")
 
         # skip import since we don't have a model type and diffusers import takes some time
-        if model_type == "":
+        if model_type == "" or self._model_type == model_type:
             return None
 
-        diffusers_module = importlib.import_module("diffusers")
-        pipeline_class = getattr(diffusers_module, model_type)
+        self._model_type = model_type
 
-        _, controlnet_mellon_config = pipeline_class_to_mellon_node_config(pipeline_class, self.node_type)
+        diffusers_module = importlib.import_module("diffusers")
+        self._pipeline_class = getattr(diffusers_module, model_type)
+
+        _, controlnet_mellon_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
         # not support this node type
         if controlnet_mellon_config is None:
             self.send_node_definition(controlnet_params)
@@ -328,18 +311,17 @@ class DynamicControlnet(NodeBase):
         self.send_node_definition(controlnet_params)
 
     def execute(self, **kwargs):
-        repo_id = kwargs.pop("repo_id", "")
         controlnet = kwargs.get("controlnet", None)
 
-        denoise_blocks, _ = repo_id_to_mellon_node_config(repo_id, "denoise")
-        controlnet_blocks, _ = repo_id_to_mellon_node_config(repo_id, "controlnet")
+        denoise_blocks, _ = pipeline_class_to_mellon_node_config(self._pipeline_class, "denoise")
+        controlnet_blocks, _ = pipeline_class_to_mellon_node_config(self._pipeline_class, "controlnet")
 
         if denoise_blocks is None:
             return
 
         if controlnet_blocks is not None:
             # controlnet node
-            controlnet_node = controlnet_blocks.init_pipeline(repo_id, components_manager=components)
+            controlnet_node = controlnet_blocks.init_pipeline(None, components_manager=components)
 
             # update the components for the controlnet node
             components_dict = {}
