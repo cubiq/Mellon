@@ -181,10 +181,10 @@ class Denoise(NodeBase):
 
         denoise_kwargs = {
             **embeddings,
-            "num_inference_steps": num_inference_steps,
+            "num_inference_steps": int(num_inference_steps),
             "generator": generator,
-            "width": width,
-            "height": height,
+            "width": int(width),
+            "height": int(height),
         }
 
         if guider is None:
@@ -196,10 +196,23 @@ class Denoise(NodeBase):
 
         if image_latents is not None:
             denoise_kwargs["image_latents"] = image_latents
-            denoise_kwargs["strength"] = strength
+            denoise_kwargs["strength"] = float(strength)
 
         if controlnet is not None:
-            denoise_kwargs.update(**controlnet["controlnet_inputs"])
+            controlnet_inputs = dict(controlnet["controlnet_inputs"])
+            controlnet_scale = float(controlnet_inputs.get("controlnet_conditioning_scale", 1.0))
+            control_guidance_start = float(controlnet_inputs.get("control_guidance_start", 0.0))
+            control_guidance_end = float(controlnet_inputs.get("control_guidance_end", 1.0))
+            controlnet_width = int(controlnet_inputs.get("width", width))
+            controlnet_height = int(controlnet_inputs.get("height", height))
+            denoise_kwargs.update({
+                **controlnet_inputs,
+                "controlnet_conditioning_scale": controlnet_scale,
+                "control_guidance_start": control_guidance_start,
+                "control_guidance_end": control_guidance_end,
+                "width": controlnet_width,
+                "height": controlnet_height
+            })
 
             model_ids = controlnet["controlnet_model"]["model_id"]
             if isinstance(model_ids, list):

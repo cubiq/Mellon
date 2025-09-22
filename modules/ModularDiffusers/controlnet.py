@@ -237,7 +237,7 @@ def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
         registry = ModularMellonNodeRegistry()
         node_type_config = registry.get(pipeline_class)[node_type]
     except Exception as e:
-        logger.debug(f" Faled to load the node from {pipeline_class}: {e}")
+        logger.debug(f" Failed to load the node from {pipeline_class}: {e}")
         return None, None
 
     node_type_blocks = None
