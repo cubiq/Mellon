@@ -123,6 +123,11 @@ class Denoise(NodeBase):
             "type": "custom_ip_adapter",
             "display": "input",
         },
+        "doc": {
+            "label": "Doc",
+            "display": "output",
+            "type": "string",
+        },
     }
 
     def __init__(self, node_id=None):
@@ -243,4 +248,4 @@ class Denoise(NodeBase):
             "width": state.get("width"),
         }
 
-        return {"latents": latents_dict, "latents_preview": latents_dict["latents"]}
+        return {"latents": latents_dict, "latents_preview": latents_dict["latents"], "doc": self._denoise_node.blocks.doc}
