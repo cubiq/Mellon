@@ -94,7 +94,7 @@ class TextValue(NodeBase):
     }
 
     def execute(self, **kwargs):
-        return {"output": kwargs["text"]}
+        return {"output": kwargs.get("text", "")}
 
 class ToList(NodeBase):
     label = "Items to List"
@@ -105,7 +105,7 @@ class ToList(NodeBase):
     }
     
     def execute(self, **kwargs):
-        return {"list": kwargs["item"]}
+        return {"list": kwargs.get("item", [])}
 
 
 

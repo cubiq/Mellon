@@ -1,3 +1,4 @@
+from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from mellon.NodeBase import NodeBase
 
 class InSPyReNetRemover(NodeBase):
@@ -117,3 +118,40 @@ class RemBg(NodeBase):
             masks.append(alpha)
 
         return {"prediction": predictions, "mask": masks}
+    
+# class Sam2Auto(NodeBase):
+#     label = "Segment Anything v2"
+#     category = "segmentation"
+#     params = {
+#         "image": {
+#             "label": "Image",
+#             "display": "input",
+#             "type": "image",
+#         },
+#         "masks": {
+#             "label": "Masks",
+#             "display": "output",
+#             "type": "image",
+#         },
+#         "device": { "label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST },
+#     }
+
+#     def execute(self, **kwargs):
+#         import torch
+#         from transformers import pipeline
+#         image = kwargs.get("image")
+#         image = image[0] if isinstance(image, list) else image
+#         device = kwargs.get("device", DEFAULT_DEVICE)
+#         generator = pipeline("mask-generation", model="facebook/sam2.1-hiera-large", device=device)
+#         output = generator(image, points_per_batch=64)
+#         masks = output['masks']
+#         # convert the binary tensors to PIL images
+#         from PIL import Image
+        
+#         pil_masks = []
+#         for mask_tensor in masks:
+#             mask_numpy = (mask_tensor.squeeze().numpy() * 255).astype('uint8')
+#             pil_mask = Image.fromarray(mask_numpy, 'L')
+#             pil_masks.append(pil_mask)
+
+#         return {"masks": pil_masks}
