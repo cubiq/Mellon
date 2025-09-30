@@ -133,7 +133,13 @@ uv sync --extra spandrel
 You can use both or more with:
 
 ```bash
-uv sync --extra spandrel --extra nunchaku --extra rmbg
+uv sync --extra spandrel --extra nunchaku --extra background-removal --extra quantization
+```
+
+The non-commercial libraries are grouped together, to install them you can use:
+
+```bash
+uv sync --extra non-commercial
 ```
 
 Finally, you can also install all the optional dependencies with:
