@@ -1,0 +1,64 @@
+[project]
+name = "mellon"
+version = "0.1.0"
+description = "Mellon is a client/server application to easily interface with ML tools with a focus on Diffusers."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "accelerate>=1.4.0",
+  "aiohttp>=3.11.12",
+  "aiohttp-cors>=0.7.0",
+  "bitsandbytes>=0.46.1",
+  "kornia>=0.8.1",
+  "nanoid>=2.0.0",
+  "peft>=0.17.0",
+  "protobuf>=6.31.1",
+  "scipy>=1.15.2",
+  "sentencepiece>=0.2.0",
+  "torch>=2.6.0",
+  "torchsde>=0.2.6",
+  "torchvision>=0.21.0",
+  "transformers>=4.49.0",
+  "diffusers>=0.36.0.dev0",
+]
+
+[project.optional-dependencies]
+nunchaku = [
+  "nunchaku>=1.0.1.dev20250924; sys_platform == 'linux' or sys_platform == 'win32'"
+]
+spandrel = ["spandrel"]
+background-removal = ["transparent-background"]
+quantization = ["dfloat11[cuda12]", "gguf", "kernels", "optimum-quanto", "torchao"]
+non-commercial = ["rembg[gpu]"]
+
+
+[tool.ruff]
+line-length = 119
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+nunchaku = [
+  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.1dev20250924/nunchaku-1.0.1.dev20250924+torch2.8-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.1dev20250924/nunchaku-1.0.1.dev20250924+torch2.8-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+]
+diffusers = { git = "https://github.com/huggingface/diffusers" }
