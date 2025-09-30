@@ -5,7 +5,6 @@ Mellon is a client/server application to easily interface with ML tools with a f
 > [!CAUTION]
 > Mellon is in an early development stage and it is not ready for production. DO NOT USE IT unless you know what you are doing.
 
-
 ## Installation
 
 ```bash
@@ -43,7 +42,7 @@ Optionally you can also install [SageAttention](https://github.com/thu-ml/SageAt
 ```bash
 cd ~/some/directory
 git clone https://github.com/thu-ml/SageAttention.git
-cd SageAttention 
+cd SageAttention
 export EXT_PARALLEL=4 NVCC_APPEND_FLAGS="--threads 8" MAX_JOBS=32 # parallel compiling
 pip install -e .
 ```
@@ -90,4 +89,61 @@ pip install -U wheel
 pip install -U setuptools
 ...
 ...
+```
+
+## Alternative UV installation
+
+Alternatively, you can install Mellon using `uv`, a fast Python package manager written in Rust.
+
+First, you will need to install `uv` following the [official instructions](https://docs.astral.sh/uv/) for your system.
+
+Then you can install the basic packages with this command:
+
+```bash
+uv sync
+```
+
+This will use `python 3.12` and install the recommended packages to run Mellon, and it may also install `torch 2.6` with CUDA 12.8 support depending on your OS (macOS not supported for now).
+
+Note: For now it will also install `diffusers` from main.
+
+If you want, you can install the `extra` packages to enable those features:
+
+- nunchaku
+- spandrel
+- rmbg
+- quant
+
+You can install each one to test them separately, a group of them, or all of them.
+
+For example, this will install Nunchaku `1.0.1dev20250924` for your system:
+
+```bash
+uv sync --extra nunchaku
+```
+
+If you then run:
+
+```bash
+uv sync --extra spandrel
+```
+
+`uv` will remove nunchaku and install spandrel.
+
+You can use both or more with:
+
+```bash
+uv sync --extra spandrel --extra nunchaku --extra rmbg
+```
+
+Finally, you can also install all the optional dependencies with:
+
+```bash
+uv sync --all-extras
+```
+
+Then you can simply start Mellon with the following command:
+
+```bash
+uv run main.py
 ```
