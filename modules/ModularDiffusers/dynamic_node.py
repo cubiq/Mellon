@@ -11,31 +11,30 @@ from . import components
 logger = logging.getLogger("mellon")
 
 
-class DynamicCustom(NodeBase):
-    label = "Dynamic Custom"
+class DynamicBlockNode(NodeBase):
+    label = "Dynamic Block Node"
     resizable = True
+    style = {"minWidth": 300}
     skipParamsCheck = True
     node_type = "custom"
 
     params = {
-        "custom_block_repo_id": {
-            "label": "Custom Block Repo ID",
+        "repo_id": {
+            "label": "Custom Block",
+            "display": "autocomplete",
             "type": "string",
+            "default": "",
+            "value": "",
+            "options": {
+                "": "",
+                "OzzyGT/florence-2-block": "Florence-2 Block",
+            },
+            "fieldOptions": {"noValidation": True},
         },
         "load_block_button": {
             "label": "Load Custom Block",
             "display": "ui_button",
             "value": False,
-            "onChange": "load_custom_block",
-        },
-        "repo_id": {
-            "label": "Preloaded Blocks",
-            "type": "string",
-            "options": {
-                "": "",
-                "OzzyGT/florence-2-block": "Full florence-2-block",
-            },
-            "value": "",
             "onChange": "update_node",
         },
         "doc": {
@@ -51,18 +50,6 @@ class DynamicCustom(NodeBase):
 
         return custom_params
 
-    def load_custom_block(self, values, ref):
-        if not values.get("custom_block_repo_id", ""):
-            self.send_node_definition({})
-            return
-
-        repo_id = values.get("custom_block_repo_id", "")
-        custom_params = self._get_custom_params(repo_id)
-
-        self.set_field_params("repo_id", {"default": "", "value": ""})
-
-        self.send_node_definition(custom_params)
-
     def update_node(self, values, ref):
         if not values.get("repo_id", ""):
             self.send_node_definition({})
@@ -70,8 +57,6 @@ class DynamicCustom(NodeBase):
 
         repo_id = values.get("repo_id", "")
         custom_params = self._get_custom_params(repo_id)
-
-        self.set_field_params("custom_block_repo_id", {"default": "", "value": ""})
 
         self.send_node_definition(custom_params)
 
