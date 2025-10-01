@@ -63,7 +63,13 @@ class Denoise(NodeBase):
                 {"action": "signal", "target": "guider"},
                 {"action": "signal", "target": "controlnet"},
                 {
-                    "StableDiffusionXLModularPipeline": ["width", "height", "ip_adapter", "controlnet"],
+                    "StableDiffusionXLModularPipeline": [
+                        "width",
+                        "height",
+                        "ip_adapter",
+                        "controlnet",
+                        "latents_preview",
+                    ],
                     "QwenImageModularPipeline": ["width", "height", "controlnet"],
                     "": [],
                 },
@@ -210,14 +216,16 @@ class Denoise(NodeBase):
             control_guidance_end = float(controlnet_inputs.get("control_guidance_end", 1.0))
             controlnet_width = int(controlnet_inputs.get("width", width))
             controlnet_height = int(controlnet_inputs.get("height", height))
-            denoise_kwargs.update({
-                **controlnet_inputs,
-                "controlnet_conditioning_scale": controlnet_scale,
-                "control_guidance_start": control_guidance_start,
-                "control_guidance_end": control_guidance_end,
-                "width": controlnet_width,
-                "height": controlnet_height
-            })
+            denoise_kwargs.update(
+                {
+                    **controlnet_inputs,
+                    "controlnet_conditioning_scale": controlnet_scale,
+                    "control_guidance_start": control_guidance_start,
+                    "control_guidance_end": control_guidance_end,
+                    "width": controlnet_width,
+                    "height": controlnet_height,
+                }
+            )
 
             model_ids = controlnet["controlnet_model"]["model_id"]
             if isinstance(model_ids, list):
@@ -248,4 +256,8 @@ class Denoise(NodeBase):
             "width": state.get("width"),
         }
 
-        return {"latents": latents_dict, "latents_preview": latents_dict["latents"], "doc": self._denoise_node.blocks.doc}
+        return {
+            "latents": latents_dict,
+            "latents_preview": latents_dict["latents"],
+            "doc": self._denoise_node.blocks.doc,
+        }
