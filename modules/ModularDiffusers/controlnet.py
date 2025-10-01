@@ -1,7 +1,6 @@
 import importlib
 import logging
 
-from diffusers import ModularPipeline
 from diffusers.modular_pipelines import SequentialPipelineBlocks
 
 from mellon.NodeBase import NodeBase
