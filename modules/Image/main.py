@@ -31,7 +31,8 @@ class Load(NodeBase):
             "display": "filebrowser",
             "type": "str",
             "fieldOptions": {
-                "fileTypes": ["image"]
+                "fileTypes": ["image"],
+                "multiple": True,
             },
         },
         "width": { "display": "output", "type": "int" },
@@ -40,26 +41,33 @@ class Load(NodeBase):
 
     def execute(self, **kwargs):
         file = kwargs["file"]
+        images = []
+        widths = []
+        heights = []
+
+        file = file if isinstance(file, list) else [file]
+        for f in file:
+            if f is None or f == "":
+                continue
+            if not Path(f).is_absolute():
+                f = Path(CONFIG.paths['work_dir']) / f
+            if not Path(f).exists():
+                continue
+            try:
+                image = Image.open(f)
+                images.append(image)
+                widths.append(image.width)
+                heights.append(image.height)
+            except Exception as e:
+                logger.error(f"Error loading image {f}: {e}")
+                continue
         
-        # The file browser element returns a list of files. TODO: handle multiple files
-        if isinstance(file, list):
-            file = file[0]
+        if len(images) == 1:
+            images = images[0]
+            widths = widths[0]
+            heights = heights[0]
 
-        if not Path(file).is_absolute():
-            file = Path(CONFIG.paths['work_dir']) / file
-
-        if not Path(file).exists():
-            logger.error(f"File {file} not found")
-            return {"image": None, "width": None, "height": None}
-
-        # load image
-        try:
-            image = Image.open(file)
-        except Exception as e:
-            logger.error(f"Error loading image {file}: {e}")
-            return {"image": None, "width": None, "height": None}
-        
-        return {"image": image, "width": image.width, "height": image.height}
+        return {"image": images, "width": widths, "height": heights}
 
 class Save(NodeBase):
     """
