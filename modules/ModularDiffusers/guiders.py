@@ -276,6 +276,7 @@ class Layers(NodeBase):
                     "StableDiffusionXLModularPipeline": SDXL_BLOCKS,
                     "QwenImageModularPipeline": QWEN_IMAGE_BLOCKS,
                     "QwenImageEditModularPipeline": QWEN_IMAGE_BLOCKS,
+                    "QwenImageEditPlusModularPipeline": QWEN_IMAGE_BLOCKS,
                     "FluxModularPipeline": FLUX_BLOCKS,
                 },
             },

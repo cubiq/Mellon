@@ -184,6 +184,7 @@ class ModelsLoader(NodeBase):
                 "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
                 "QwenImageModularPipeline": "Qwen Image",
                 "QwenImageEditModularPipeline": "Qwen Image Edit",
+                "QwenImageEditPlusModularPipeline": "Qwen Image Edit Plus",
                 "FluxModularPipeline": "Flux",
             },
             "onChange": [
@@ -244,6 +245,8 @@ class ModelsLoader(NodeBase):
             filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
         elif model_type == "QwenImageEditModularPipeline":
             filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
+        elif model_type == "QwenImageEditPlusModularPipeline":
+            filters = ["QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"]
         elif model_type == "FluxModularPipeline":
             filters = ["FluxModularPipeline", "FluxPipeline"]
 
@@ -252,6 +255,7 @@ class ModelsLoader(NodeBase):
             "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
             "QwenImageModularPipeline": "Qwen/Qwen-Image",
             "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
+            "QwenImageEditPlusModularPipeline": "Qwen/Qwen-Image-Edit-2509",
             "FluxModularPipeline": "black-forest-labs/FLUX.1-dev",
         }
 
