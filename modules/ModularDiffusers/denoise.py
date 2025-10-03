@@ -71,6 +71,12 @@ class Denoise(NodeBase):
                         "latents_preview",
                     ],
                     "QwenImageModularPipeline": ["width", "height", "controlnet"],
+                    "FluxModularPipeline": [
+                        "width",
+                        "height",
+                        "controlnet",
+                        "ip_adapter",
+                    ],
                     "": [],
                 },
             ],
