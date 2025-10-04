@@ -22,6 +22,8 @@ def list_files(directory: str, recursive: bool = False, extensions: list[str] | 
             files.append({
                 "path": file_path,
                 "rel_path": name_with_path,
+                "directory": directory,
+                "rel_directory": relative_path,
                 "name": file,
                 "extension": file.split(".")[-1] if "." in file else "",
             })

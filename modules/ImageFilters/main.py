@@ -115,7 +115,6 @@ class AdaptiveSharpening(NodeBase):
             # Move image to the correct device before processing
             img = img.to(device)
 
-            # Call the static sharpen method
             sharp_img = AdaptiveSharpening.sharpen(img, sharpness)
             output.append(sharp_img.to('cpu'))
         
@@ -151,8 +150,8 @@ class AdaptiveSharpening(NodeBase):
         diag_neighbors = patches[:, :, diag_indices]
 
         # Computing contrast
-        # Note: The original code included the center pixel 'e' in the 'cross' min/max.
-        # To replicate that, we can concatenate it.
+        # Note: The original code included the center pixel 'e' in the 'cross' min/max
+        # To replicate that, we can concatenate it
         cross_and_center = torch.cat((cross_neighbors, e.unsqueeze(2)), dim=2)
         mn, _ = torch.min(cross_and_center, dim=2)
         mx, _ = torch.max(cross_and_center, dim=2)
@@ -163,16 +162,13 @@ class AdaptiveSharpening(NodeBase):
         mx = mx + mx2
         mn = mn + mn2
 
-        # Computing local weight
         inv_mx = torch.reciprocal(mx + epsilon)
         amp = inv_mx * torch.minimum(mn, (2 - mx))
 
-        # scaling
-        amp = torch.sqrt(torch.clamp(amp, min=0)) # Add clamp for stability
+        amp = torch.sqrt(torch.clamp(amp, min=0))
         w = -amp * (sharpness * (1/5 - 1/8) + 1/8)
         div = torch.reciprocal(1 + 4*w)
 
-        # Sum cross neighbors and apply weights
         sum_cross_neighbors = torch.sum(cross_neighbors, dim=2)
         output = (sum_cross_neighbors * w + e) * div
         output = output.clamp(0, 1)
