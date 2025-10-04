@@ -79,7 +79,22 @@ class Denoise(NodeBase):
                     ],
                     "": [],
                 },
+                {
+                    "action": "value",
+                    "target": "skip_image_size",
+                    "data": {
+                        "QwenImageEditModularPipeline": True,
+                        "QwenImageEditPlusModularPipeline": True,
+                    },
+                },
             ],
+        },
+        "skip_image_size": {
+            "label": "Skip Image Size",
+            "type": "boolean",
+            "default": False,
+            "value": False,
+            "hidden": True,
         },
         "scheduler": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
         "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
@@ -161,6 +176,7 @@ class Denoise(NodeBase):
         ip_adapter=None,
         width=None,
         height=None,
+        skip_image_size=False,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
@@ -196,12 +212,19 @@ class Denoise(NodeBase):
 
         generator = torch.Generator(device=device).manual_seed(seed)
 
+        # qwen image edit models work better without setting the image size
+        if skip_image_size:
+            width = height = None
+        else:
+            width = int(width) if width is not None else None
+            height = int(height) if height is not None else None
+
         denoise_kwargs = {
             **embeddings,
             "num_inference_steps": int(num_inference_steps),
             "generator": generator,
-            "width": int(width),
-            "height": int(height),
+            "width": width,
+            "height": height,
         }
 
         if guider is None:
