@@ -228,9 +228,14 @@ class Denoise(NodeBase):
         }
 
         if guider is None:
-            guider_spec = self._denoise_node.get_component_spec("guider")
-            guider_spec.config["guidance_scale"] = guidance_scale
-            self._denoise_node.update_components(guider=guider_spec)
+            try:
+                guider_spec = self._denoise_node.get_component_spec("guider")
+            except Exception:
+                logger.debug("Guider component not found, this should mean that the model does not require one.")
+            else:
+                if guider_spec is not None:
+                    guider_spec.config["guidance_scale"] = guidance_scale
+                    self._denoise_node.update_components(guider=guider_spec)
         else:
             self._denoise_node.update_components(guider=guider)
 
