@@ -9,7 +9,11 @@ custom/*
 #!custom/Example/**
 
 data/*
-!data/.gitkeep
+!data/graphs/
+data/graphs/*
+!data/graphs/mellon/
+!data/graphs/mellon/**
+#!data/.gitkeep
 
 web/user/*
 !web/user/ExampleField.js

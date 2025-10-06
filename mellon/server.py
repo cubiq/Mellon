@@ -81,6 +81,8 @@ class WebServer:
             web.get('/cache/{node}/{field}/{index}', self.cache),
             web.delete('/cache', self.delete_cache),
             web.get('/listdir', self.listdir),
+            web.get('/listgraphs', self.listgraphs),
+            web.get('/file', self.fileGet),
             web.post('/file', self.filePost),
             web.get('/preview', self.preview),
             web.post('/graph', self.graph),
@@ -595,14 +597,15 @@ class WebServer:
     """
 
     async def listdir(self, request):
-        req_path = request.query.get('path', self.work_dir)
+        req_basepath = self.data_dir if request.query.get('basepath') == 'data' else self.work_dir
+        req_path = request.query.get('path', req_basepath)
         req_type = request.query.get('type', None)
         if req_type:
             req_type = [t.strip() for t in req_type.lower().split(',')]
 
         full_path = Path(req_path)
         if not full_path.is_absolute():
-            full_path = Path(self.work_dir) / full_path
+            full_path = Path(req_basepath) / full_path
 
         file_types = {
             'image': ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'ico', 'webp'],
@@ -658,6 +661,76 @@ class WebServer:
         except Exception as e:
             logger.error(f"Error listing directory: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    async def listgraphs(self, request):
+        path = Path(self.data_dir) / 'graphs'
+        if not path.exists():
+            return web.json_response({"error": True, "message": "No graph directory found."}, status=404)
+        
+        graphs = list_files(str(path), recursive=True, extensions=['json'])
+
+        # build a nested tree of directories and files
+        tree: list[dict] = []
+
+        for g in graphs:
+            rel_dir = g.get('rel_directory') or '.'
+            # normalize and split directory parts
+            parts = [] if rel_dir in (None, '.', '') else [p for p in rel_dir.strip('/').split('/') if p]
+
+            parent_children = tree
+            current_path_parts: list[str] = []
+            # ensure directory nodes exist for each part
+            for part in parts:
+                current_path_parts.append(part)
+                node = next((n for n in parent_children if n.get('isDir') and n.get('name') == part), None)
+                if not node:
+                    node = {
+                        "isDir": True,
+                        "name": part,
+                        "path": f"{str(path)}/{'/'.join(current_path_parts)}",
+                        "children": []
+                    }
+                    parent_children.append(node)
+                parent_children = node['children']
+
+            raw_name = g.get('name') or Path(g.get('path', '')).name
+            file_item = {
+                "isDir": False,
+                "name": Path(raw_name).stem,
+                "path": g.get('path')
+            }
+            parent_children.append(file_item)
+
+        # recursively sort directories (dirs first, then files) by name
+        def sort_children(children: list[dict]):
+            dirs = [c for c in children if c['isDir']]
+            files = [c for c in children if not c['isDir']]
+            dirs.sort(key=lambda x: x['name'].lower())
+            files.sort(key=lambda x: x['name'].lower())
+            for d in dirs:
+                sort_children(d['children'])
+            # mutate list in-place to preserve references
+            children[:] = dirs + files
+
+        sort_children(tree)
+
+        return web.json_response(tree)
+
+    async def fileGet(self, request):
+        file = request.query.get('file')
+        file_type = request.query.get('type', 'json')
+
+        if not file:
+            return web.json_response({"error": "Incorrect request, `file` is required."}, status=400)
+        
+        file_path = Path(file)
+        if not file_path.is_absolute():
+            file_path = Path(self.work_dir) / file_path
+
+        if not file_path.exists():
+            return web.json_response({"error": f"The file {file} does not exist."}, status=404)
+        
+        return web.FileResponse(file_path)
 
     async def filePost(self, request):
         data = await request.post()
