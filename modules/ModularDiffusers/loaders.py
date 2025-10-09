@@ -186,6 +186,7 @@ class ModelsLoader(NodeBase):
                 "QwenImageEditModularPipeline": "Qwen Image Edit",
                 "QwenImageEditPlusModularPipeline": "Qwen Image Edit Plus",
                 "FluxModularPipeline": "Flux",
+                "FluxKontextModularPipeline": "Flux Kontext",
             },
             "onChange": [
                 "set_filters",
@@ -249,6 +250,8 @@ class ModelsLoader(NodeBase):
             filters = ["QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"]
         elif model_type == "FluxModularPipeline":
             filters = ["FluxModularPipeline", "FluxPipeline"]
+        elif model_type == "FluxKontextModularPipeline":
+            filters = ["FluxKontextModularPipeline", "FluxKontextPipeline"]
 
         default_values = {
             "": "",
@@ -257,6 +260,7 @@ class ModelsLoader(NodeBase):
             "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
             "QwenImageEditPlusModularPipeline": "Qwen/Qwen-Image-Edit-2509",
             "FluxModularPipeline": "black-forest-labs/FLUX.1-dev",
+            "FluxKontextModularPipeline": "black-forest-labs/FLUX.1-Kontext-dev",
         }
 
         self.set_field_params(

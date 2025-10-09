@@ -278,6 +278,7 @@ class Layers(NodeBase):
                     "QwenImageEditModularPipeline": QWEN_IMAGE_BLOCKS,
                     "QwenImageEditPlusModularPipeline": QWEN_IMAGE_BLOCKS,
                     "FluxModularPipeline": FLUX_BLOCKS,
+                    "FluxKontextModularPipeline": FLUX_BLOCKS,
                 },
             },
         },
