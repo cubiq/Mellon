@@ -117,11 +117,11 @@ class AutoModelLoader(NodeBase):
         filters = []
 
         if model_type == "denoise":
-            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel"]
+            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
         elif model_type == "controlnet":
-            filters = ["ControlNetModel", "QwenImageControlNetModel"]
+            filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
 
         default_values = {
             "": "",
@@ -184,6 +184,9 @@ class ModelsLoader(NodeBase):
                 "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
                 "QwenImageModularPipeline": "Qwen Image",
                 "QwenImageEditModularPipeline": "Qwen Image Edit",
+                "QwenImageEditPlusModularPipeline": "Qwen Image Edit Plus",
+                "FluxModularPipeline": "Flux",
+                "FluxKontextModularPipeline": "Flux Kontext",
             },
             "onChange": [
                 "set_filters",
@@ -243,12 +246,21 @@ class ModelsLoader(NodeBase):
             filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
         elif model_type == "QwenImageEditModularPipeline":
             filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
+        elif model_type == "QwenImageEditPlusModularPipeline":
+            filters = ["QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"]
+        elif model_type == "FluxModularPipeline":
+            filters = ["FluxModularPipeline", "FluxPipeline"]
+        elif model_type == "FluxKontextModularPipeline":
+            filters = ["FluxKontextModularPipeline", "FluxKontextPipeline"]
 
         default_values = {
             "": "",
             "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
             "QwenImageModularPipeline": "Qwen/Qwen-Image",
             "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
+            "QwenImageEditPlusModularPipeline": "Qwen/Qwen-Image-Edit-2509",
+            "FluxModularPipeline": "black-forest-labs/FLUX.1-dev",
+            "FluxKontextModularPipeline": "black-forest-labs/FLUX.1-Kontext-dev",
         }
 
         self.set_field_params(
