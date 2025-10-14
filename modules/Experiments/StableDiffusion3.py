@@ -4,17 +4,53 @@ from mellon.NodeBase import NodeBase
 from utils.torch_utils import str_to_dtype, DEVICE_LIST, DEFAULT_DEVICE
 from utils.memory_menager import memory_flush
 from mellon.config import CONFIG
-from utils.huggingface import local_files_only, get_local_model_ids
+from utils.huggingface import local_files_only
 from diffusers import StableDiffusion3Pipeline, SD3Transformer2DModel, AutoencoderKL
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
 from .utils import get_clip_prompt_embeds, get_t5_prompt_embeds, upcast_vae, sd3_latents_to_rgb
+from utils.quantization import getQuantizationConfig, quantize
 
 HF_TOKEN = CONFIG.hf['token']
 
 class SD3PipelineLoader(NodeBase):
+    '''description": "Load a Stable Diffusion 3 pipeline'''
+    label = "SD3 Pipeline Loader"
+    category = "loader"
+    style = { "minWidth": 360 }
+    resizable = True
+    params = {
+        "pipeline": { "label": "SD3 Pipeline", "display": "output", "type": ["pipeline", "StableDiffusion3Pipeline"] },
+        "model_id": {
+            "label": "Model",
+            "display": "modelselect",
+            "type": "string",
+            "default": { 'source': 'hub', 'value': "stabilityai/stable-diffusion-3.5-large" },
+            "fieldOptions": {
+                "noValidation": True,
+                "sources": ['hub', 'local'],
+                "filter": {
+                    "hub": { "className": ["StableDiffusion3Pipeline"] },
+                    "local": { "id": r"SD3\.5" },
+                },
+            },
+        },
+        "dtype": {
+            "label": "Dtype",
+            "type": "string",
+            "default": "bfloat16",
+            "options": ['auto', 'float32', 'float16', 'bfloat16'],
+        },
+        "load_t5": { "label": "Load T5 Encoder", "type": "boolean", "default": True },
+        "text_encoders": { "label": "Text Encoders", "display": "input", "type": "SD3TextEncoders", "onChange": { True: [], False: ['load_t5']} },
+        "transformer": { "label": "Transformer", "display": "input", "type": "SD3Transformer2DModel" },
+    }
+
     def execute(self, **kwargs):
         dtype = str_to_dtype(kwargs['dtype'])
-        model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
+        model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'stabilityai/stable-diffusion-3.5-large'})
+        source = model_id.get('source', 'hub')
+        model_id = model_id.get('value', 'stabilityai/stable-diffusion-3.5-large') if isinstance(model_id, dict) else model_id
+
         transformer = kwargs.get('transformer', None)
         text_encoders = kwargs.get('text_encoders', None)
         load_t5 = kwargs.get('load_t5', True)
@@ -48,6 +84,8 @@ class SD3PipelineLoader(NodeBase):
         self.mm_add(pipeline.transformer, priority=3)
         self.mm_add(pipeline.vae, priority=2)
 
+        #print(dict(pipeline.transformer.named_modules()).keys())
+
         if not text_encoders:
             self.mm_add(pipeline.text_encoder, priority=1)
             self.mm_add(pipeline.text_encoder_2, priority=1)
@@ -56,60 +94,82 @@ class SD3PipelineLoader(NodeBase):
 
         return { "pipeline": pipeline }
 
-# class SD3TransformerLoader(NodeBase):
-#     """
-#     Load a Stable Diffusion 3 transformer
-#     """
+class SD3TransformerLoader(NodeBase):
+    def execute(self, **kwargs):
+        model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'stabilityai/stable-diffusion-3.5-large'})
+        model_id = model_id.get('value', 'stabilityai/stable-diffusion-3.5-large') if isinstance(model_id, dict) else model_id
 
-#     label = "SD3 Transformer Loader"
-#     category = "loader"
-#     style = { "minWidth": 320 }
-#     params = {
-#         "model": { "label": "Transformer", "display": "output", "type": "SD3Transformer2DModel" },
-#         "model_id": { "label": "Model ID", "type": "string", "default": "stabilityai/stable-diffusion-3.5-large" },
-#         "dtype": { "label": "Dtype", "type": "string", "default": "auto", "options": ['auto', 'float32', 'float16', 'bfloat16'] },
-#         "compile": { "label": "Compile", "type": "boolean", "default": False, "onChange": { True: "device", False: [] } },
-#         "device": { "label": "Device", "type": "string", "default": DEFAULT_DEVICE, "options": DEVICE_LIST },
-#     }
+        dtype = str_to_dtype(kwargs['dtype'])
 
-#     def execute(self, **kwargs):
-#         model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
-#         dtype = str_to_dtype(kwargs['dtype'])
-#         compile = kwargs.get('compile', False)
+        quantization = kwargs.get('quantization', 'none')
+        quantization = None if quantization == 'none' else quantization
+        quantization = 'gguf' if model_id.lower().endswith('.gguf') else quantization
 
-#         transformer_model = SD3Transformer2DModel.from_pretrained(
-#             model_id,
-#             torch_dtype=dtype,
-#             subfolder="transformer",
-#             token=HF_TOKEN,
-#             local_files_only=local_files_only(model_id),
-#         )
+        fuse_qkv = kwargs.get('fuse_qkv', False)
 
-#         model_id = self.mm_add(transformer_model, priority=3)
+        compile = kwargs.get('compile', False)
+        compile_mode = kwargs.get('compile_mode', 'default')
+        compile_fullgraph = kwargs.get('compile_fullgraph', False)
 
-#         if compile:
-#             self.mm_load(model_id, device=kwargs['device'])
-#             transformer_model = self.mm_exec(compile, kwargs['device'], exclude=[model_id], args=[transformer_model])
-#             self.mm_update(model_id, model=transformer_model)
+        config = {
+            'torch_dtype': dtype,
+            'token': HF_TOKEN,
+            'subfolder': "transformer"
+        }
 
-#         return { 'model': transformer_model }
+        loaderCallback = SD3Transformer2DModel.from_pretrained
+        if quantization == 'gguf':
+            from diffusers import GGUFQuantizationConfig
+            config['quantization_config'] = GGUFQuantizationConfig(compute_dtype=dtype)
+            loaderCallback = SD3Transformer2DModel.from_single_file
+        elif quantization == 'bnb':
+            config['quantization_config'] = getQuantizationConfig(quantization, **kwargs)
+
+        transformer = self.graceful_model_loader(loaderCallback, model_id, config)
+
+        if quantization == 'torchao' or quantization == 'quanto':
+            quant_device = kwargs.get('quant_device', None)
+            transformer = self.mm_exec(lambda: quantize(transformer, quantization, **kwargs), quant_device, models=[transformer])
+            memory_flush()
+
+        # for name, module in transformer.named_modules():
+        #     with open("transformer_modules.txt", "a") as f:
+        #         f.write(f'"{name}",\n')
+
+        if fuse_qkv and hasattr(transformer, 'fuse_qkv_projections'):
+            transformer.fuse_qkv_projections()
+
+        if compile:
+            transformer = torch.compile(transformer, mode=compile_mode, fullgraph=compile_fullgraph)
+
+        self.mm_add(transformer, priority=3)
+
+        return { "transformer": transformer }
 
 class SD3TextEncodersLoader(NodeBase):
     def execute(self, **kwargs):
-        model_id = kwargs.get('model_id', 'stabilityai/stable-diffusion-3.5-large')
+        model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'stabilityai/stable-diffusion-3.5-large'})
+        source = model_id.get('source', 'hub')
+        model_id = model_id.get('value', 'stabilityai/stable-diffusion-3.5-large') if isinstance(model_id, dict) else model_id
         dtype = str_to_dtype(kwargs['dtype'])
         load_t5 = kwargs.get('load_t5', True)
 
+        quantization = kwargs.get('quantization', 'none')
+        quantization = None if quantization == 'none' else quantization
+
+        quant_config = None
+        if load_t5 and quantization == 'bnb':
+            quant_config = getQuantizationConfig(quantization, **kwargs)
+
         config = {
-            "torch_dtype": dtype,
-            "local_files_only": local_files_only(model_id),
+            "dtype": dtype,
             "token": HF_TOKEN,
         }
 
-        text_encoder = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder", **config)
-        tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer", **config)
-        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", **config)
-        tokenizer_2 = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", **config)
+        text_encoder = self.graceful_model_loader(CLIPTextModelWithProjection, model_id, {**config, "subfolder": "text_encoder"})
+        tokenizer = self.graceful_model_loader(CLIPTokenizer, model_id, {**config, "subfolder": "tokenizer"})
+        text_encoder_2 = self.graceful_model_loader(CLIPTextModelWithProjection, model_id, {**config, "subfolder": "text_encoder_2"})
+        tokenizer_2 = self.graceful_model_loader(CLIPTokenizer, model_id, {**config, "subfolder": "tokenizer_2"})
 
         self.mm_add(text_encoder, priority=1)
         self.mm_add(text_encoder_2, priority=1)
@@ -118,9 +178,17 @@ class SD3TextEncodersLoader(NodeBase):
         t5_tokenizer = None
 
         if load_t5:
-            t5_encoder = T5EncoderModel.from_pretrained(model_id, subfolder="text_encoder_3", **config)
-            t5_tokenizer = T5TokenizerFast.from_pretrained(model_id, subfolder="tokenizer_3", **config)
+            t5_encoder = self.graceful_model_loader(T5EncoderModel, model_id, {**config, "subfolder": "text_encoder_3", "quantization_config": quant_config})
+            t5_tokenizer = self.graceful_model_loader(T5TokenizerFast, model_id, {**config, "subfolder": "tokenizer_3"})
             self.mm_add(t5_encoder, priority=0)
+
+            #print(dict(t5_encoder.named_parameters()).keys())
+            #print(dict(text_encoder_2.named_modules()).keys())
+
+            if quantization == 'torchao' or quantization == 'quanto':
+                quant_device = kwargs.get('quant_device', None)
+                t5_encoder = self.mm_exec(lambda: quantize(t5_encoder, quantization, **kwargs), quant_device, exclude=[t5_encoder])
+                memory_flush()
         
         return {
             "encoders": {
@@ -267,7 +335,7 @@ class SD3Sampler(NodeBase):
     category = "sampler"
     resizable = True
     params = {
-        "pipeline": { "label": "Pipeline", "display": "input", "type": "pipeline" },
+        "pipeline": { "label": "Pipeline", "display": "input", "type": ["pipeline", "StableDiffusion3Pipeline"] },
         "embeds": { "label": "Embeddings", "display": "input", "type": "embedding" },
         "latents": { "label": "Latents", "display": "output", "type": "latent" },
         "width": { "label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8 },

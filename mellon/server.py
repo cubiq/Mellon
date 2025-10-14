@@ -71,7 +71,6 @@ class WebServer:
         # set up the routes
         self.app.add_routes([
             web.static('/assets', 'web/assets', append_version=True),
-            web.static('/user', 'web/user', append_version=True),
             web.get('/', self.index),
             web.get('/favicon.ico', self.favicon),
             web.get('/ws', self.websocket),
@@ -96,6 +95,12 @@ class WebServer:
             web.get('/hf_download', self.hf_download),
             web.get('/static/{module}/{file}', self.user_assets),
         ])
+
+        # serve the user assets
+        try:
+            self.app.add_routes(web.static('/user', 'web/user', append_version=True))
+        except Exception as e:
+            pass
 
         # set up the cors routes
         if cors:
@@ -718,7 +723,6 @@ class WebServer:
 
     async def fileGet(self, request):
         file = request.query.get('file')
-        file_type = request.query.get('type', 'json')
 
         if not file:
             return web.json_response({"error": "Incorrect request, `file` is required."}, status=400)

@@ -20,63 +20,6 @@ MODELS_DIR = CONFIG.paths['models']
 ONLINE_STATUS = CONFIG.hf['online_status']
 
 class FluxTransformerLoader(NodeBase):
-    label = "FLUX Transformer Loader"
-    category = "loader"
-    style = { "minWidth": 300 }
-    resizable = True
-    params = {
-        "model_id": {
-            "label": "Model",
-            "display": "modelselect",
-            "type": "string",
-            "default": { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev' },
-            "fieldOptions": {
-                "noValidation": True,
-                "sources": ['hub', 'local'],
-                "filter": {
-                    "hub": { "className": ["FluxTransformer2DModel"] },
-                    "local": { "id": r"flux" },
-                },
-            },
-        },
-        "dtype": {
-            "label": "Dtype",
-            "type": "string",
-            "default": "bfloat16",
-            "options": ['auto', 'float32', 'float16', 'bfloat16'],
-        },
-        **QUANT_SELECT,
-        **QUANT_FIELDS,
-        "fuse_qkv": {
-            "description": "Improve performance at the cost of increased memory usage.",
-            "label": "Fuse QKV projections",
-            "type": "boolean",
-            "default": False,
-        },
-        "compile": {
-            "description": "Use Torch to compile the model for improved performance. Works only on supported platforms.",
-            "label": "Compile",
-            "type": "boolean",
-            "default": False,
-            "onChange": {
-                True: ['compile_mode', 'compile_fullgraph'],
-                False: []
-            }
-        },
-        "compile_mode": {
-            "label": "Mode",
-            "type": "string",
-            "default": "max-autotune",
-            "options": ['default', 'reduce-overhead', 'max-autotune', 'max-autotune-no-cudagraphs'],
-        },
-        "compile_fullgraph": {
-            "label": "Full Graph",
-            "type": "boolean",
-            "default": True,
-        },
-        "transformer": { "label": "Transformer", "display": "output", "type": "FluxTransformer2DModel" },
-    }
-
     def execute(self, **kwargs):
         model_id = kwargs.get('model_id', { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev'})
         model_id = model_id.get('value', 'black-forest-labs/FLUX.1-dev') if isinstance(model_id, dict) else model_id
@@ -133,42 +76,6 @@ class FluxTransformerLoader(NodeBase):
         return { "transformer": transformer }
 
 class FluxTextEncoderLoader(NodeBase):
-    label = "FLUX Text Encoders Loader"
-    category = "loader"
-    params = {
-        "model_id": {
-            "label": "Model",
-            "display": "modelselect",
-            "type": "string",
-            "default": { 'source': 'hub', 'value': 'black-forest-labs/FLUX.1-dev' },
-            "fieldOptions": {
-                "noValidation": True,
-                "sources": ['hub'],
-                "filter": {
-                    "hub": { "className": r"^Flux" },
-                },
-            },
-        },
-        "dtype": {
-            "label": "Dtype",
-            "type": "string",
-            "default": "bfloat16",
-            "options": ['auto', 'float32', 'float16', 'bfloat16'],
-        },
-        **QUANT_SELECT,
-        **QUANT_FIELDS,
-        "t5": {
-            "label": "T5 Encoder",
-            "display": "input",
-            "type": "T5EncoderModel",
-        },
-        "encoders": {
-            "label": "Encoders",
-            "display": "output",
-            "type": "FluxTextEncoders",
-        },
-    }
-
     def execute(self, **kwargs):
         from transformers import CLIPTextModel, CLIPTokenizer, T5TokenizerFast, T5EncoderModel
 
