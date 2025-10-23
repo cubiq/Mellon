@@ -1,5 +1,6 @@
 import copy
 import logging
+from dataclasses import dataclass
 
 import torch
 from diffusers import ComponentSpec, ModularPipeline
@@ -13,6 +14,49 @@ from . import components
 
 logger = logging.getLogger("mellon")
 logger.setLevel(logging.DEBUG)
+
+
+@dataclass(frozen=True)
+class PipelineRegistration:
+    filters: tuple[str, ...]
+    default_repo: str
+
+
+PIPELINE_REGISTRY: dict[str, PipelineRegistration] = {
+    "": PipelineRegistration(filters=(), default_repo=""),
+    "StableDiffusionXLModularPipeline": PipelineRegistration(
+        filters=("StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"),
+        default_repo="stabilityai/stable-diffusion-xl-base-1.0",
+    ),
+    "QwenImageModularPipeline": PipelineRegistration(
+        filters=("QwenImageModularPipeline", "QwenImagePipeline"),
+        default_repo="Qwen/Qwen-Image",
+    ),
+    "QwenImageEditModularPipeline": PipelineRegistration(
+        filters=("QwenImageEditModularPipeline", "QwenImageEditPipeline"),
+        default_repo="Qwen/Qwen-Image-Edit",
+    ),
+    "QwenImageEditPlusModularPipeline": PipelineRegistration(
+        filters=("QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"),
+        default_repo="Qwen/Qwen-Image-Edit-2509",
+    ),
+    "FluxModularPipeline": PipelineRegistration(
+        filters=("FluxModularPipeline", "FluxPipeline"),
+        default_repo="black-forest-labs/FLUX.1-dev",
+    ),
+    "FluxKontextModularPipeline": PipelineRegistration(
+        filters=("FluxKontextModularPipeline", "FluxKontextPipeline"),
+        default_repo="black-forest-labs/FLUX.1-Kontext-dev",
+    ),
+}
+
+
+def get_pipeline_registration(model_type: str) -> PipelineRegistration:
+    return PIPELINE_REGISTRY.get(model_type, PIPELINE_REGISTRY[""])
+
+
+def register_pipeline(model_type: str, *, filters: tuple[str, ...] = (), default_repo: str = "") -> None:
+    PIPELINE_REGISTRY[model_type] = PipelineRegistration(filters=tuple(filters), default_repo=default_repo)
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
@@ -237,40 +281,16 @@ class ModelsLoader(NodeBase):
 
     def set_filters(self, values, ref):
         model_type = values.get("model_type", "")
-
-        filters = []
-
-        if model_type == "StableDiffusionXLModularPipeline":
-            filters = ["StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"]
-        elif model_type == "QwenImageModularPipeline":
-            filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
-        elif model_type == "QwenImageEditModularPipeline":
-            filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
-        elif model_type == "QwenImageEditPlusModularPipeline":
-            filters = ["QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"]
-        elif model_type == "FluxModularPipeline":
-            filters = ["FluxModularPipeline", "FluxPipeline"]
-        elif model_type == "FluxKontextModularPipeline":
-            filters = ["FluxKontextModularPipeline", "FluxKontextPipeline"]
-
-        default_values = {
-            "": "",
-            "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
-            "QwenImageModularPipeline": "Qwen/Qwen-Image",
-            "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
-            "QwenImageEditPlusModularPipeline": "Qwen/Qwen-Image-Edit-2509",
-            "FluxModularPipeline": "black-forest-labs/FLUX.1-dev",
-            "FluxKontextModularPipeline": "black-forest-labs/FLUX.1-Kontext-dev",
-        }
+        reg = get_pipeline_registration(model_type)
 
         self.set_field_params(
             "repo_id",
             {
-                "default": {"source": "hub", "value": default_values[model_type]},
-                "value": {"source": "hub", "value": default_values[model_type]},
+                "default": {"source": "hub", "value": reg.default_repo},
+                "value": {"source": "hub", "value": reg.default_repo},
                 "fieldOptions": {
                     "filter": {
-                        "hub": {"className": filters},
+                        "hub": {"className": list(reg.filters)},
                     },
                 },
             },
