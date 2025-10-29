@@ -299,7 +299,7 @@ class ModelsLoader(NodeBase):
         # first time dynamically load the model_type options
         if not self.model_types_loaded:
             self.set_field_params("model_type", {"options": model_type_options()})
-            self.pipelines_loaded = True
+            self.model_types_loaded = True
 
         model_type = values.get("model_type", "")
         reg = get_pipeline_registration(model_type)
