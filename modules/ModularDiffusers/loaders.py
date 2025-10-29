@@ -274,6 +274,11 @@ class ModelsLoader(NodeBase):
             "postProcess": str_to_dtype,
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "auto_cpu_offload": {
+            "label": "Use Auto CPU Offload",
+            "type": "boolean",
+            "value": True,
+        },
         "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
         "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
@@ -317,11 +322,12 @@ class ModelsLoader(NodeBase):
             },
         )
 
-    def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
+    def execute(self, model_type, repo_id, device, auto_cpu_offload, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
             - repo_id: {repo_id}
             - dtype: {dtype}
+            - auto_cpu_offload: {auto_cpu_offload}
             - device: {device}
             - unet: {unet}
             - vae: {vae}
@@ -345,8 +351,10 @@ class ModelsLoader(NodeBase):
         else:
             real_repo_id = ""
 
-        if not components._auto_offload_enabled or components._auto_offload_device != device:
+        if auto_cpu_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
             components.enable_auto_cpu_offload(device=device)
+        else:
+            components.disable_auto_cpu_offload()
 
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
@@ -389,6 +397,9 @@ class ModelsLoader(NodeBase):
         else:
             self.loader.unload_lora_weights()
             update_lora_adapters(self.loader, lora_list)
+
+        if not auto_cpu_offload:
+            self.loader.to(device=device)
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {
