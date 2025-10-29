@@ -317,7 +317,7 @@ class Scheduler(NodeBase):
                 "UniPCMultistepScheduler": "unipc",
             },
             "value": "EulerDiscreteScheduler",
-            "onChange": "updateNode",
+            "onChange": "update_node",
         },
         "scheduler_out": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
         "prediction_type": {
@@ -331,7 +331,7 @@ class Scheduler(NodeBase):
         },
     }
 
-    def updateNode(self, values, ref):
+    def update_node(self, values, ref):
         value = values.get("scheduler")
 
         params = SCHEDULER_CONFIGS.get(value, {})

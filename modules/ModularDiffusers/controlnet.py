@@ -274,7 +274,7 @@ class DynamicControlnet(NodeBase):
                         "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
                     },
                 },
-                {"action": "exec", "data": "updateNode"},
+                {"action": "exec", "data": "update_node"},
             ],
         },
     }
@@ -284,7 +284,7 @@ class DynamicControlnet(NodeBase):
         self._model_type = ""
         self._pipeline_class = None
 
-    def updateNode(self, values, ref):
+    def update_node(self, values, ref):
         # default params: repo_id
         controlnet_params = {}
         model_type = values.get("model_type", "")
