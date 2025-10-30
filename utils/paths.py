@@ -1,5 +1,6 @@
 import os
 import re
+from mellon.config import CONFIG
 
 def list_files(directory: str, recursive: bool = False, extensions: list[str] | tuple[str, ...] = [], match: str = "", relative_path: str = ""):
     if not os.path.exists(directory):
@@ -34,3 +35,24 @@ def list_files(directory: str, recursive: bool = False, extensions: list[str] | 
         
         files.sort(key=lambda x: x["rel_path"].lower())
     return files
+
+def parse_filename(filename, **kwargs):
+        from datetime import datetime
+        import nanoid
+
+        def hash_func(arg, **kwargs): return nanoid.generate(size=int(arg))
+        def date_func(arg, **kwargs): return datetime.now().strftime(arg)
+        def index_func(arg, **kwargs): return "{:0>{width}}".format(kwargs.get("index", 0), width=arg)
+        def path_func(arg, **kwargs): return CONFIG.paths.get(str(arg).lower()) or CONFIG.paths.get('work_dir')
+        local_map = locals()
+
+        def replace_match(match):
+            key = match.group(1).lower()
+            arg = match.group(2)
+            func_name = f"{key}_func"
+            if func_name in local_map:
+                return str(local_map[func_name](arg, **kwargs))
+            return match.group(0)
+
+        filename = re.sub(r'\{(\w+):([^\}]+)\}', replace_match, filename)
+        return filename

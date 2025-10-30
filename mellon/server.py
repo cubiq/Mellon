@@ -2,6 +2,7 @@ import logging
 import asyncio
 from aiohttp import web, WSMsgType
 from aiohttp_cors import setup as cors_setup, ResourceOptions
+import aiofiles
 logging.getLogger('asyncio').setLevel(logging.WARNING)
 from functools import partial
 from importlib import import_module
@@ -94,6 +95,7 @@ class WebServer:
             web.get('/hf_hub', self.hf_hub),
             web.get('/hf_download', self.hf_download),
             web.get('/static/{module}/{file}', self.user_assets),
+            web.get('/stream', self.stream)
         ])
 
         # serve the user assets
@@ -563,7 +565,12 @@ class WebServer:
             charset = 'utf-8'
             filename = f"{filename}.txt"
         else:
-            return web.HTTPBadRequest(text=f"Data type `{type}` not supported.")
+            resp = web.FileResponse(data)
+            resp.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
         
         return web.Response(
             body=out,
@@ -740,7 +747,7 @@ class WebServer:
         data = await request.post()
         file = data.get('file')
         type = data.get('type', 'images')
-        type = type if type in ['images', 'audio', 'video', 'text', '3d'] else 'images'
+        type = type if type in ['images', 'audio', 'videos', 'text', '3d'] else 'images'
         file_path = Path(self.data_dir) / type / file.filename
 
         if file_path.exists():
@@ -815,6 +822,30 @@ class WebServer:
                 'Expires': '0'
             }
         )
+    
+    async def stream(self, request):
+        file = request.query.get('file')
+        if not file:
+            return web.json_response({"error": "Incorrect request, `file` is required."}, status=400)
+
+        file_path = Path(file)
+        if not file_path.is_absolute():
+            file_path = Path(self.work_dir) / file_path
+
+        if not str(file_path).startswith(self.work_dir):
+            return web.json_response({"error": f"Cannot access paths outside of {self.work_dir}."}, status=403)
+
+        if not file_path.exists():
+            return web.json_response({"error": f"The file {file} does not exist."}, status=404)
+        
+        resp = web.FileResponse(file_path)
+        resp.headers['Content-Disposition'] = f'inline; filename="{file_path.name}"'
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        
+        return resp
+
 
     async def local_models(self, request):
         refresh = request.query.get('refresh', False)

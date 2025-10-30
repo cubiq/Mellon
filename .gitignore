@@ -5,6 +5,7 @@ config.ini
 *.local
 
 custom/*
+!custom/.gitkeep
 !custom/Example/
 #!custom/Example/**
 
