@@ -9,66 +9,11 @@ from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
+from .modular_utils import get_all_model_types, get_model_type_metadata
 
 
 logger = logging.getLogger("mellon")
 logger.setLevel(logging.DEBUG)
-
-
-@dataclass(frozen=True)
-class PipelineRegistration:
-    label: str
-    filters: tuple[str, ...]
-    default_repo: str
-
-
-PIPELINE_REGISTRY: dict[str, PipelineRegistration] = {
-    "": PipelineRegistration(label="", filters=(), default_repo=""),
-    "StableDiffusionXLModularPipeline": PipelineRegistration(
-        label="Stable Diffusion XL",
-        filters=("StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"),
-        default_repo="stabilityai/stable-diffusion-xl-base-1.0",
-    ),
-    "QwenImageModularPipeline": PipelineRegistration(
-        label="Qwen Image",
-        filters=("QwenImageModularPipeline", "QwenImagePipeline"),
-        default_repo="Qwen/Qwen-Image",
-    ),
-    "QwenImageEditModularPipeline": PipelineRegistration(
-        label="Qwen Image Edit",
-        filters=("QwenImageEditModularPipeline", "QwenImageEditPipeline"),
-        default_repo="Qwen/Qwen-Image-Edit",
-    ),
-    "QwenImageEditPlusModularPipeline": PipelineRegistration(
-        label="Qwen Image Edit Plus",
-        filters=("QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"),
-        default_repo="Qwen/Qwen-Image-Edit-2509",
-    ),
-    "FluxModularPipeline": PipelineRegistration(
-        label="Flux",
-        filters=("FluxModularPipeline", "FluxPipeline"),
-        default_repo="black-forest-labs/FLUX.1-dev",
-    ),
-    "FluxKontextModularPipeline": PipelineRegistration(
-        label="Flux Kontext",
-        filters=("FluxKontextModularPipeline", "FluxKontextPipeline"),
-        default_repo="black-forest-labs/FLUX.1-Kontext-dev",
-    ),
-}
-
-
-def get_pipeline_registration(model_type: str) -> PipelineRegistration:
-    return PIPELINE_REGISTRY.get(model_type, PIPELINE_REGISTRY[""])
-
-
-# maybe in the future we can maintain the supported models in modular diffusers so we don't have to
-# modify this file every time a new pipeline is added
-def register_pipeline(
-    model_type: str, *, label: str = "", filters: tuple[str, ...] = (), default_repo: str = ""
-) -> None:
-    PIPELINE_REGISTRY[model_type] = PipelineRegistration(
-        label=label or model_type, filters=tuple(filters), default_repo=default_repo
-    )
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
@@ -226,13 +171,6 @@ class AutoModelLoader(NodeBase):
         return {"model": components.get_model_info(comp_id)}
 
 
-def model_type_options() -> dict[str, str]:
-    options = {"": PIPELINE_REGISTRY[""].label}
-    for k, reg in PIPELINE_REGISTRY.items():
-        if k == "":
-            continue
-        options[k] = reg.label or k
-    return options
 
 
 class ModelsLoader(NodeBase):
@@ -298,24 +236,41 @@ class ModelsLoader(NodeBase):
     def set_filters(self, values, ref):
         # first time dynamically load the model_type options
         if not self.model_types_loaded:
-            self.set_field_params("model_type", {"options": model_type_options()})
-            self.pipelines_loaded = True
+            self.set_field_params("model_type", {"options": get_all_model_types()})
+            # self.model_types_loaded = True
 
         model_type = values.get("model_type", "")
-        reg = get_pipeline_registration(model_type)
+        print(f"[ModelsLoader.set_filters] model_type selected: '{model_type}'")
+        print(f"[ModelsLoader.set_filters] This should trigger signal to unet_out and text_encoders")
+        metadata = get_model_type_metadata(model_type)
+        
+        if metadata:
+            default_repo = metadata["default_repo"]
+            default_dtype = metadata["default_dtype"]
+        else:
+            # Fallback for empty or unknown model types
+            default_repo = ""
+            default_dtype = "float16"
+        filters = [model_type] # YiYi Notes: 1:1 between model_type <-> modular pipeline class
 
         self.set_field_params(
-            "repo_id",
-            {
-                "default": {"source": "hub", "value": reg.default_repo},
-                "value": {"source": "hub", "value": reg.default_repo},
-                "fieldOptions": {
-                    "filter": {
-                        "hub": {"className": list(reg.filters)},
+                "repo_id",
+                {
+                    "default": {"source": "hub", "value": default_repo},
+                    "value": {"source": "hub", "value": default_repo},
+                    "fieldOptions": {
+                        "filter": {
+                            "hub": {"className": filters},
+                        },
                     },
                 },
-            },
-        )
+            )
+        # self.set_field_params(
+        #         "dtype",
+        #         {
+        #             "value": default_dtype,
+        #         },
+        #     )
 
     def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""

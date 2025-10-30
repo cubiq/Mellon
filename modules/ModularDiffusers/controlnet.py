@@ -1,12 +1,11 @@
 import importlib
 import logging
 
-from diffusers.modular_pipelines import SequentialPipelineBlocks
-
 from mellon.NodeBase import NodeBase
 
 from . import components
 from .utils import combine_multi_inputs
+from .modular_utils import pipeline_class_to_mellon_node_config
 
 
 logger = logging.getLogger("mellon")
@@ -225,30 +224,6 @@ class ControlnetUnion(NodeBase):
             },
         }
         return {"controlnet": controlnet}
-
-
-def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
-    print(f" inside pipeline_class_to_mellon_node_config: {pipeline_class}")
-
-    try:
-        from diffusers.modular_pipelines.mellon_node_utils import ModularMellonNodeRegistry
-
-        registry = ModularMellonNodeRegistry()
-        node_type_config = registry.get(pipeline_class)[node_type]
-    except Exception as e:
-        logger.debug(f" Failed to load the node from {pipeline_class}: {e}")
-        return None, None
-
-    node_type_blocks = None
-    pipeline = pipeline_class()
-
-    if pipeline is not None and node_type_config is not None and node_type_config.blocks_names:
-        blocks_dict = {
-            name: block for name, block in pipeline.blocks.sub_blocks.items() if name in node_type_config.blocks_names
-        }
-        node_type_blocks = SequentialPipelineBlocks.from_blocks_dict(blocks_dict)
-
-    return node_type_blocks, node_type_config
 
 
 class DynamicControlnet(NodeBase):

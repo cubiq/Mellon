@@ -1,5 +1,7 @@
 import logging
 from typing import Any, List, Tuple
+import importlib
+from .modular_utils import pipeline_class_to_mellon_node_config, get_model_type_signal_data
 
 import torch
 from diffusers import ComponentsManager
@@ -49,117 +51,103 @@ def insert_preview_block(pipeline):
 
     insert_preview_block_recursive(pipeline.blocks.sub_blocks["denoise"], "", preview_block)
 
+# SIGNAL_DATA = get_model_type_signal_data()
 
 class Denoise(NodeBase):
     label = "Denoise"
     category = "sampler"
     resizable = True
+    skipParamsCheck = True
+    node_type = "denoise"
     params = {
+        "model_type": {
+            "label": "Model Type", 
+            "type": "string", 
+            "default": "", 
+            "hidden": True  # Hidden field to receive signal data
+        },
         "unet": {
             "label": "Denoise Model",
             "display": "input",
             "type": "diffusers_auto_model",
             "onSignal": [
-                {"action": "signal", "target": "guider"},
-                {"action": "signal", "target": "controlnet"},
-                {
-                    "StableDiffusionXLModularPipeline": [
-                        "width",
-                        "height",
-                        "ip_adapter",
-                        "controlnet",
-                        "latents_preview",
-                    ],
-                    "QwenImageModularPipeline": ["width", "height", "controlnet"],
-                    "FluxModularPipeline": [
-                        "width",
-                        "height",
-                        "controlnet",
-                        "ip_adapter",
-                    ],
-                    "": [],
-                },
                 {
                     "action": "value",
-                    "target": "skip_image_size",
+                    "target": "model_type",
+                    # "data": SIGNAL_DATA, # YiYi Notes: not working
                     "data": {
-                        "QwenImageEditModularPipeline": True,
-                        "QwenImageEditPlusModularPipeline": True,
+                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                        "QwenImageModularPipeline": "QwenImageModularPipeline",
+                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                        "FluxModularPipeline": "FluxModularPipeline",
+                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
                     },
                 },
-            ],
-        },
-        "skip_image_size": {
-            "label": "Skip Image Size",
-            "type": "boolean",
-            "default": False,
-            "value": False,
-            "hidden": True,
-        },
-        "scheduler": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
-        "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
-        "latents": {"label": "Latents", "type": "latents", "display": "output"},
-        "width": {"label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8},
-        "height": {"label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8},
-        "seed": {"label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295},
-        "num_inference_steps": {
-            "label": "Steps",
-            "type": "int",
-            "display": "slider",
-            "default": 25,
-            "min": 1,
-            "max": 100,
-        },
-        "guidance_scale": {
-            "label": "Guidance Scale",
-            "type": "float",
-            "display": "slider",
-            "default": 5,
-            "min": 1.0,
-            "max": 30.0,
-            "step": 0.1,
-        },
-        "latents_preview": {"label": "Latents Preview", "display": "output", "type": "latent"},
-        "guider": {
-            "label": "Guider",
-            "display": "input",
-            "type": "custom_guider",
-            "onChange": {False: ["guidance_scale"], True: []},
-        },
-        "image_latents": {
-            "label": "Image Latents",
-            "type": "latents",
-            "display": "input",
-            "onChange": {False: ["height", "width"], True: ["strength"]},
-        },
-        "strength": {
-            "label": "Strength",
-            "type": "float",
-            "default": 0.5,
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01,
-        },
-        "controlnet": {
-            "label": "Controlnet",
-            "type": "custom_controlnet",
-            "display": "input",
-        },
-        "ip_adapter": {
-            "label": "IP Adapter",
-            "type": "custom_ip_adapter",
-            "display": "input",
-        },
-        "doc": {
-            "label": "Doc",
-            "display": "output",
-            "type": "string",
+                {"action": "exec", "data": "update_node"},
+                {"action": "signal", "target": "guider"},
+                {"action": "signal", "target": "controlnet"},
+            ]
         },
     }
 
+    def update_node(self, values, ref):
+
+        node_params  = {
+            "model_type": {
+                "label": "Model Type", 
+                "type": "string", 
+                "default": "", 
+                "hidden": True  # Hidden field to receive signal data
+            },
+            "unet": {
+                "label": "Denoise Model",
+                "display": "input",
+                "type": "diffusers_auto_model",
+                "onSignal": [
+                    {
+                        "action": "value",
+                        "target": "model_type",
+                        # "data": SIGNAL_DATA, # YiYi Notes: not working
+                        "data": {
+                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                            "QwenImageModularPipeline": "QwenImageModularPipeline",
+                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                            "FluxModularPipeline": "FluxModularPipeline",
+                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        },
+                    },
+                    {"action": "exec", "data": "update_node"},
+                    {"action": "signal", "target": "guider"},
+                    {"action": "signal", "target": "controlnet"},
+                ]
+            },
+        }
+        model_type = values.get("model_type", "")
+
+        if model_type == "" or self._model_type == model_type:
+            return None
+
+        self._model_type = model_type
+
+        diffusers_module = importlib.import_module("diffusers")
+        self._pipeline_class = getattr(diffusers_module, model_type)
+
+        _, denoise_mellon_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
+        # not support this node type
+        if denoise_mellon_config is None:
+            self.send_node_definition(node_params)
+            return
+
+        # required params for controlnet
+        node_params.update(**denoise_mellon_config.to_mellon_dict()["params"])
+        self.send_node_definition(node_params)
+
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._denoise_node = None
+        self._model_type = ""
+        self._pipeline_class = None
 
     def execute(
         self,
@@ -177,6 +165,7 @@ class Denoise(NodeBase):
         width=None,
         height=None,
         skip_image_size=False,
+        **kwargs,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")

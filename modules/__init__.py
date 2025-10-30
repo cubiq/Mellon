@@ -216,6 +216,6 @@ def parse_module_map(base_path: str) -> None:
                 logger.warning(f"Module '{module_name}' could not be parsed or has no NodeBase classes.")
 
 parse_module_map("modules")
-parse_module_map("custom")
+#  parse_module_map("custom")
 
 logger.info(f"Loaded {total_nodes} nodes from {len(MODULE_MAP)} modules.")
