@@ -661,11 +661,9 @@ def get_model_type_metadata(model_type: str) -> Dict[str, Any]:
 
 
 def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
-    print(f" pipeline_class_to_mellon_node_config: {pipeline_class}, {node_type}")
 
     try:
         node_type_config = MODULAR_REGISTRY.get(pipeline_class)["node_params"][node_type]
-        print(f" node_type_config: {node_type_config}")
     except Exception as e:
         logger.debug(f" Failed to load the node from {pipeline_class}: {e}")
         return None, None

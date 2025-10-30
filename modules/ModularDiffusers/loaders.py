@@ -237,11 +237,9 @@ class ModelsLoader(NodeBase):
         # first time dynamically load the model_type options
         if not self.model_types_loaded:
             self.set_field_params("model_type", {"options": get_all_model_types()})
-            # self.model_types_loaded = True
+            self.model_types_loaded = True
 
         model_type = values.get("model_type", "")
-        print(f"[ModelsLoader.set_filters] model_type selected: '{model_type}'")
-        print(f"[ModelsLoader.set_filters] This should trigger signal to unet_out and text_encoders")
         metadata = get_model_type_metadata(model_type)
         
         if metadata:
@@ -265,12 +263,12 @@ class ModelsLoader(NodeBase):
                     },
                 },
             )
-        # self.set_field_params(
-        #         "dtype",
-        #         {
-        #             "value": default_dtype,
-        #         },
-        #     )
+        self.set_field_params(
+                "dtype",
+                {
+                    "value": default_dtype,
+                },
+            )
 
     def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
