@@ -40,6 +40,7 @@ class WebServer:
 
         self.modules = modules
         self.ws_sessions = {}
+        self.pending_ws_requests = {}
 
         self.interrupt_flag = False
         self.node_cache = {}
@@ -505,7 +506,19 @@ class WebServer:
         if queue:
             task_id = await self.queue_task(fn, (values, ref), None, sid, name=f"Field action")
         else:
-            fn(values, ref)
+            # Run field action in executor to avoid blocking the event loop
+            if not getattr(self, 'loop', None):
+                self.loop = asyncio.get_event_loop()
+            try:
+                await self.loop.run_in_executor(None, partial(fn, values, ref))
+            except Exception as e:
+                logger.error(f"Error executing field action synchronously: {e}")
+                return web.json_response({
+                    "error": True,
+                    "message": f"Field action error: {e}",
+                    "sid": sid,
+                    "ref": ref,
+                }, status=500)
             task_id = None
 
         return web.json_response({
@@ -1174,6 +1187,12 @@ class WebServer:
         self.ws_sessions[sid] = ws
         logger.debug(f"Websocket connection opened: {sid}")
 
+        # Update the session id in all cached nodes
+        for node in self.node_cache:
+            # check if the node has a _sid attribute
+            if hasattr(self.node_cache[node], '_sid') and self.node_cache[node]._sid != sid:
+                self.node_cache[node]._sid = sid
+
         # send the welcome message together with the ids of the cached nodes
         await self.broadcast({"type": "welcome", "instance": self.instance, "sid": sid, "cachedNodes": list(self.node_cache.keys())}, sid)
         
@@ -1187,6 +1206,26 @@ class WebServer:
                         break
                     elif data['type'] == 'ping':
                         await self.broadcast({"type": "pong"}, sid)
+                    elif data['type'] == 'signal_value':
+                        request_id = data.get('request_id')
+                        if not request_id:
+                            logger.warning("[Websocket] signal_value received without request_id")
+                            continue
+                        # Resolve the pending request future if present
+                        try:
+                            promised_sid = data.get('sid', None)
+                            future = self.pending_ws_requests.pop(request_id, None)
+                            if future is None:
+                                logger.debug(f"[Websocket] signal_value received for unknown request_id: {request_id}")
+                                continue
+                            if not future.done():
+                                result = data.get('value')
+                                if promised_sid != sid:
+                                    result = { '__MELLON_ERROR': 'sid_mismatch' }
+                                future.set_result(result)
+                        except Exception as e:
+                            logger.error(f"[Websocket] Error resolving signal_value for request_id {request_id}: {e}")
+
                     else:
                         logger.error(f"[Websocket] Invalid message type: {data['type']}")
                 elif msg.type == WSMsgType.CLOSE:
@@ -1232,7 +1271,55 @@ class WebServer:
                 self.background_queue.put((self.broadcast, (message, sid, exclude))),
                 self.loop
             )
+    
+    def get_signal_value(self, node: str, field: str, sid: str, timeout: int = 2):
+        try:
+            if not sid or sid not in self.ws_sessions or self.ws_sessions[sid].closed:
+                return { '__MELLON_ERROR': 'invalid_sid' }
 
+            if not getattr(self, 'loop', None) or not self.loop.is_running():
+                return { '__MELLON_ERROR': 'server_not_running' }
+
+            try:
+                running_loop = asyncio.get_running_loop()
+                if running_loop is self.loop:
+                    logger.warning("[Server] get_signal_value called from event loop thread; returning None to avoid deadlock.")
+                    return { '__MELLON_ERROR': 'called_from_event_loop' }
+            except RuntimeError:
+                # No running loop in this thread; safe to proceed
+                pass
+
+            # Create a future bound to the server loop and register it
+            request_id = nanoid.generate(size=12)
+            future = self.loop.create_future()
+            self.pending_ws_requests[request_id] = future
+
+            # Send the request to the target client
+            self.queue_message({
+                "type": "get_signal_value",
+                "request_id": request_id,
+                "node": node,
+                "field": field,
+                "sid": sid
+            }, sid)
+
+            # Await the future result from outside the event loop thread
+            # Use run_coroutine_threadsafe to wait with a timeout safely
+            wrapped = asyncio.wait_for(future, timeout=timeout)
+            cfut = asyncio.run_coroutine_threadsafe(wrapped, self.loop)
+            try:
+                result = cfut.result(timeout=timeout + 0.5)
+            except Exception:
+                result = { '__MELLON_ERROR': 'timeout' }
+            finally:
+                # Cleanup any leftover pending entry
+                self.pending_ws_requests.pop(request_id, None)
+
+            return result
+        except Exception as e:
+            logger.error(f"[Server] get_signal_value error: {e}")
+            return { '__MELLON_ERROR': 'exception' }
+    
 
 def to_base64(type, value, options={}):
     import io
