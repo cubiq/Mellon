@@ -1,5 +1,5 @@
-import copy
 import logging
+from dataclasses import dataclass
 
 import torch
 from diffusers import ComponentSpec, ModularPipeline
@@ -13,6 +13,62 @@ from . import components
 
 logger = logging.getLogger("mellon")
 logger.setLevel(logging.DEBUG)
+
+
+@dataclass(frozen=True)
+class PipelineRegistration:
+    label: str
+    filters: tuple[str, ...]
+    default_repo: str
+
+
+PIPELINE_REGISTRY: dict[str, PipelineRegistration] = {
+    "": PipelineRegistration(label="", filters=(), default_repo=""),
+    "StableDiffusionXLModularPipeline": PipelineRegistration(
+        label="Stable Diffusion XL",
+        filters=("StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"),
+        default_repo="stabilityai/stable-diffusion-xl-base-1.0",
+    ),
+    "QwenImageModularPipeline": PipelineRegistration(
+        label="Qwen Image",
+        filters=("QwenImageModularPipeline", "QwenImagePipeline"),
+        default_repo="Qwen/Qwen-Image",
+    ),
+    "QwenImageEditModularPipeline": PipelineRegistration(
+        label="Qwen Image Edit",
+        filters=("QwenImageEditModularPipeline", "QwenImageEditPipeline"),
+        default_repo="Qwen/Qwen-Image-Edit",
+    ),
+    "QwenImageEditPlusModularPipeline": PipelineRegistration(
+        label="Qwen Image Edit Plus",
+        filters=("QwenImageEditPlusModularPipeline", "QwenImageEditPlusPipeline"),
+        default_repo="Qwen/Qwen-Image-Edit-2509",
+    ),
+    "FluxModularPipeline": PipelineRegistration(
+        label="Flux",
+        filters=("FluxModularPipeline", "FluxPipeline"),
+        default_repo="black-forest-labs/FLUX.1-dev",
+    ),
+    "FluxKontextModularPipeline": PipelineRegistration(
+        label="Flux Kontext",
+        filters=("FluxKontextModularPipeline", "FluxKontextPipeline"),
+        default_repo="black-forest-labs/FLUX.1-Kontext-dev",
+    ),
+}
+
+
+def get_pipeline_registration(model_type: str) -> PipelineRegistration:
+    return PIPELINE_REGISTRY.get(model_type, PIPELINE_REGISTRY[""])
+
+
+# maybe in the future we can maintain the supported models in modular diffusers so we don't have to
+# modify this file every time a new pipeline is added
+def register_pipeline(
+    model_type: str, *, label: str = "", filters: tuple[str, ...] = (), default_repo: str = ""
+) -> None:
+    PIPELINE_REGISTRY[model_type] = PipelineRegistration(
+        label=label or model_type, filters=tuple(filters), default_repo=default_repo
+    )
 
 
 def node_get_component_info(node_id=None, manager=None, name=None):
@@ -117,11 +173,11 @@ class AutoModelLoader(NodeBase):
         filters = []
 
         if model_type == "denoise":
-            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel"]
+            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
         elif model_type == "controlnet":
-            filters = ["ControlNetModel", "QwenImageControlNetModel"]
+            filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
 
         default_values = {
             "": "",
@@ -170,6 +226,15 @@ class AutoModelLoader(NodeBase):
         return {"model": components.get_model_info(comp_id)}
 
 
+def model_type_options() -> dict[str, str]:
+    options = {"": PIPELINE_REGISTRY[""].label}
+    for k, reg in PIPELINE_REGISTRY.items():
+        if k == "":
+            continue
+        options[k] = reg.label or k
+    return options
+
+
 class ModelsLoader(NodeBase):
     label = "Load Models"
     category = "loader"
@@ -181,9 +246,6 @@ class ModelsLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
-                "QwenImageModularPipeline": "Qwen Image",
-                "QwenImageEditModularPipeline": "Qwen Image Edit",
             },
             "onChange": [
                 "set_filters",
@@ -212,6 +274,11 @@ class ModelsLoader(NodeBase):
             "postProcess": str_to_dtype,
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "auto_cpu_offload": {
+            "label": "Use Auto CPU Offload",
+            "type": "boolean",
+            "value": True,
+        },
         "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
         "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
@@ -224,6 +291,7 @@ class ModelsLoader(NodeBase):
     def __init__(self, node_id=None):
         super().__init__(node_id)
         self.loader = None
+        self.model_types_loaded = False
 
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
@@ -233,42 +301,33 @@ class ModelsLoader(NodeBase):
         super().__del__()
 
     def set_filters(self, values, ref):
+        # first time dynamically load the model_type options
+        if not self.model_types_loaded:
+            self.set_field_params("model_type", {"options": model_type_options()})
+            self.model_types_loaded = True
+
         model_type = values.get("model_type", "")
-
-        filters = []
-
-        if model_type == "StableDiffusionXLModularPipeline":
-            filters = ["StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"]
-        elif model_type == "QwenImageModularPipeline":
-            filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
-        elif model_type == "QwenImageEditModularPipeline":
-            filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
-
-        default_values = {
-            "": "",
-            "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
-            "QwenImageModularPipeline": "Qwen/Qwen-Image",
-            "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
-        }
+        reg = get_pipeline_registration(model_type)
 
         self.set_field_params(
             "repo_id",
             {
-                "default": {"source": "hub", "value": default_values[model_type]},
-                "value": {"source": "hub", "value": default_values[model_type]},
+                "default": {"source": "hub", "value": reg.default_repo},
+                "value": {"source": "hub", "value": reg.default_repo},
                 "fieldOptions": {
                     "filter": {
-                        "hub": {"className": filters},
+                        "hub": {"className": list(reg.filters)},
                     },
                 },
             },
         )
 
-    def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
+    def execute(self, model_type, repo_id, device, auto_cpu_offload, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
             - repo_id: {repo_id}
             - dtype: {dtype}
+            - auto_cpu_offload: {auto_cpu_offload}
             - device: {device}
             - unet: {unet}
             - vae: {vae}
@@ -292,8 +351,10 @@ class ModelsLoader(NodeBase):
         else:
             real_repo_id = ""
 
-        if not components._auto_offload_enabled or components._auto_offload_device != device:
+        if auto_cpu_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
             components.enable_auto_cpu_offload(device=device)
+        else:
+            components.disable_auto_cpu_offload()
 
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
@@ -336,6 +397,9 @@ class ModelsLoader(NodeBase):
         else:
             self.loader.unload_lora_weights()
             update_lora_adapters(self.loader, lora_list)
+
+        if not auto_cpu_offload:
+            self.loader.to(device=device)
 
         # Construct loaded_components at the end after all modifications
         loaded_components = {

@@ -4,7 +4,7 @@ from diffusers import LayerSkipConfig, SmoothedEnergyGuidanceConfig
 
 from mellon.NodeBase import NodeBase
 
-from . import SDXL_BLOCKS
+from . import FLUX_BLOCKS, QWEN_IMAGE_BLOCKS, SDXL_BLOCKS
 
 
 logger = logging.getLogger("mellon")
@@ -272,7 +272,14 @@ class Layers(NodeBase):
                 "action": "value",
                 "target": "blocks_select",
                 "prop": "options",
-                "data": {"StableDiffusionXLModularPipeline": SDXL_BLOCKS},
+                "data": {
+                    "StableDiffusionXLModularPipeline": SDXL_BLOCKS,
+                    "QwenImageModularPipeline": QWEN_IMAGE_BLOCKS,
+                    "QwenImageEditModularPipeline": QWEN_IMAGE_BLOCKS,
+                    "QwenImageEditPlusModularPipeline": QWEN_IMAGE_BLOCKS,
+                    "FluxModularPipeline": FLUX_BLOCKS,
+                    "FluxKontextModularPipeline": FLUX_BLOCKS,
+                },
             },
         },
     }
