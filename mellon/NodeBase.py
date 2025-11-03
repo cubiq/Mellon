@@ -399,6 +399,19 @@ class NodeBase:
 
         return result
 
+    def notify(self, message: str, variant: str = 'default', persist: bool = False, autoHideDuration: int = 0):
+        if not self._sid or not self.node_id:
+            return
+        
+        server.queue_message({
+            "type": "notification",
+            "node": self.node_id,
+            "message": message,
+            "variant": variant,
+            "persist": persist,
+            "autoHideDuration": autoHideDuration,
+        }, self._sid)
+
 
     """
     ╭────────────────╮
