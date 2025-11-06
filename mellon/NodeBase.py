@@ -385,6 +385,32 @@ class NodeBase:
             "field": field,
             "params": params,
         }, self._sid)
+    
+    def get_signal_value(self, field: str, timeout: int = 5):
+        if not self._sid or not self.node_id:
+            return None
+
+        if not self._sid in server.ws_sessions:
+            raise ValueError("WebSocket session not available for this node.")
+        
+        result = server.get_signal_value(self.node_id, field, self._sid, timeout=timeout)
+        if isinstance(result, dict) and '__MELLON_ERROR' in result:
+            raise ValueError(result['__MELLON_ERROR'])
+
+        return result
+
+    def notify(self, message: str, variant: str = 'default', persist: bool = False, autoHideDuration: int = 0):
+        if not self._sid or not self.node_id:
+            return
+        
+        server.queue_message({
+            "type": "notification",
+            "node": self.node_id,
+            "message": message,
+            "variant": variant,
+            "persist": persist,
+            "autoHideDuration": autoHideDuration,
+        }, self._sid)
 
 
     """
