@@ -63,11 +63,38 @@ class Denoise(NodeBase):
                 {"action": "signal", "target": "guider"},
                 {"action": "signal", "target": "controlnet"},
                 {
-                    "StableDiffusionXLModularPipeline": ["width", "height", "ip_adapter", "controlnet"],
+                    "StableDiffusionXLModularPipeline": [
+                        "width",
+                        "height",
+                        "ip_adapter",
+                        "controlnet",
+                        "latents_preview",
+                    ],
                     "QwenImageModularPipeline": ["width", "height", "controlnet"],
+                    "FluxModularPipeline": [
+                        "width",
+                        "height",
+                        "controlnet",
+                        "ip_adapter",
+                    ],
                     "": [],
                 },
+                {
+                    "action": "value",
+                    "target": "skip_image_size",
+                    "data": {
+                        "QwenImageEditModularPipeline": True,
+                        "QwenImageEditPlusModularPipeline": True,
+                    },
+                },
             ],
+        },
+        "skip_image_size": {
+            "label": "Skip Image Size",
+            "type": "boolean",
+            "default": False,
+            "value": False,
+            "hidden": True,
         },
         "scheduler": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
         "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
@@ -149,6 +176,7 @@ class Denoise(NodeBase):
         ip_adapter=None,
         width=None,
         height=None,
+        skip_image_size=False,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
         logger.debug(f" - unet: {unet}")
@@ -184,18 +212,30 @@ class Denoise(NodeBase):
 
         generator = torch.Generator(device=device).manual_seed(seed)
 
+        # qwen image edit models work better without setting the image size
+        if skip_image_size:
+            width = height = None
+        else:
+            width = int(width) if width is not None else None
+            height = int(height) if height is not None else None
+
         denoise_kwargs = {
             **embeddings,
             "num_inference_steps": int(num_inference_steps),
             "generator": generator,
-            "width": int(width),
-            "height": int(height),
+            "width": width,
+            "height": height,
         }
 
         if guider is None:
-            guider_spec = self._denoise_node.get_component_spec("guider")
-            guider_spec.config["guidance_scale"] = guidance_scale
-            self._denoise_node.update_components(guider=guider_spec)
+            try:
+                guider_spec = self._denoise_node.get_component_spec("guider")
+            except Exception:
+                logger.debug("Guider component not found, this should mean that the model does not require one.")
+            else:
+                if guider_spec is not None:
+                    guider_spec.config["guidance_scale"] = guidance_scale
+                    self._denoise_node.update_components(guider=guider_spec)
         else:
             self._denoise_node.update_components(guider=guider)
 
@@ -210,14 +250,16 @@ class Denoise(NodeBase):
             control_guidance_end = float(controlnet_inputs.get("control_guidance_end", 1.0))
             controlnet_width = int(controlnet_inputs.get("width", width))
             controlnet_height = int(controlnet_inputs.get("height", height))
-            denoise_kwargs.update({
-                **controlnet_inputs,
-                "controlnet_conditioning_scale": controlnet_scale,
-                "control_guidance_start": control_guidance_start,
-                "control_guidance_end": control_guidance_end,
-                "width": controlnet_width,
-                "height": controlnet_height
-            })
+            denoise_kwargs.update(
+                {
+                    **controlnet_inputs,
+                    "controlnet_conditioning_scale": controlnet_scale,
+                    "control_guidance_start": control_guidance_start,
+                    "control_guidance_end": control_guidance_end,
+                    "width": controlnet_width,
+                    "height": controlnet_height,
+                }
+            )
 
             model_ids = controlnet["controlnet_model"]["model_id"]
             if isinstance(model_ids, list):
@@ -248,4 +290,8 @@ class Denoise(NodeBase):
             "width": state.get("width"),
         }
 
-        return {"latents": latents_dict, "latents_preview": latents_dict["latents"], "doc": self._denoise_node.blocks.doc}
+        return {
+            "latents": latents_dict,
+            "latents_preview": latents_dict["latents"],
+            "doc": self._denoise_node.blocks.doc,
+        }

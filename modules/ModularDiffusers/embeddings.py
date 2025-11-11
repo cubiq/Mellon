@@ -19,7 +19,11 @@ class EncodePrompt(NodeBase):
             "label": "Text Encoders",
             "type": "diffusers_auto_models",
             "display": "input",
-            "onSignal": {"QwenImageEditModularPipeline": ["image"], "": []},
+            "onSignal": {
+                "QwenImageEditModularPipeline": ["image"],
+                "QwenImageEditPlusModularPipeline": ["image"],
+                "": [],
+            },
         },
         "prompt": {"label": "Prompt", "type": "string", "default": "", "display": "textarea"},
         "image": {"label": "Image", "type": "image", "display": "input"},
