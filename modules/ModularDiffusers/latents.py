@@ -12,7 +12,6 @@ from . import components
 logger = logging.getLogger("mellon")
 
 
-#YiYi Notes: this is not working for qwen/flux as latents needs to be unpacked first
 class LatentsPreview(NodeBase):
     label = "Latents Preview"
     category = "image"
@@ -63,15 +62,11 @@ class DecodeLatents(NodeBase):
         logger.debug(f" - vae: {vae}")
         logger.debug(f" - latents: {latents['latents'].shape}")
 
-        vae = vae.copy()
-        repo_id = vae.pop("repo_id")
+        repo_id = vae["repo_id"]
         decoder_blocks = ModularPipeline.from_pretrained(repo_id).blocks.sub_blocks.pop("decode")
         self._decoder_node = decoder_blocks.init_pipeline(repo_id, components_manager=components)
 
-        vae_component_dict = components.get_components_by_ids(
-            ids=[vae["model_id"]],
-            return_dict_with_names=True
-        )
+        vae_component_dict = components.get_components_by_ids(ids=[vae["model_id"]], return_dict_with_names=True)
         self._decoder_node.update_components(**vae_component_dict)
         image = self._decoder_node(**latents, output="images")[0]
 
@@ -105,16 +100,17 @@ class ImageEncode(NodeBase):
 
         # YiYi TODO: update in diffusers so vae encoder block name is always "vae_encoder"
         pipeline = ModularPipeline.from_pretrained(repo_id)
-        encoder_block_name = next((name for name in pipeline.blocks.block_names if "encode" in name.lower() and "text" not in name.lower()), None)
+        encoder_block_name = next(
+            (name for name in pipeline.blocks.block_names if "encode" in name.lower() and "text" not in name.lower()),
+            None,
+        )
         encoder_blocks = pipeline.blocks.sub_blocks.pop(encoder_block_name)
         self._encoder_node = encoder_blocks.init_pipeline(repo_id, components_manager=components)
 
-        vae_component_dict = components.get_components_by_ids(
-            ids=[vae["model_id"]],
-            return_dict_with_names=True
-        )
+        vae_component_dict = components.get_components_by_ids(ids=[vae["model_id"]], return_dict_with_names=True)
         self._encoder_node.update_components(**vae_component_dict)
         state = self._encoder_node(image=image)
+
         image_latents = state.get("image_latents")
 
         return {"image_latents": image_latents}
