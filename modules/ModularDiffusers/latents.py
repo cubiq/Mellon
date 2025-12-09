@@ -6,7 +6,7 @@ from PIL import Image
 
 from mellon.NodeBase import NodeBase
 
-from . import components
+from . import MESSAGE_DURATION, components
 
 
 logger = logging.getLogger("mellon")
@@ -59,8 +59,24 @@ class DecodeLatents(NodeBase):
 
     def execute(self, vae, latents):
         logger.debug(f" DecodeLatents ({self.node_id}) received parameters:")
-        logger.debug(f" - vae: {vae}")
-        logger.debug(f" - latents: {latents['latents'].shape}")
+
+        if latents is None:
+            self.notify(
+                "Connect the `Latents` from the `Denoise` node",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise ValueError("Latents is None")
+
+        if vae is None:
+            self.notify(
+                "Connect the `VAE` from the `Load Models` node",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise ValueError("VAE is None")
 
         repo_id = vae["repo_id"]
         decoder_blocks = ModularPipeline.from_pretrained(repo_id).blocks.sub_blocks.pop("decode")

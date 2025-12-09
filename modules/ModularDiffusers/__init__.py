@@ -3,6 +3,8 @@ from diffusers import ComponentsManager
 
 components = ComponentsManager()
 
+MESSAGE_DURATION = 5000
+
 MODULE_PARSE = [
     "adapters",
     "controlnet",

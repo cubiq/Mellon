@@ -8,7 +8,7 @@ from transformers import CLIPVisionModelWithProjection
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
-from . import components
+from . import MESSAGE_DURATION, components
 
 
 logger = logging.getLogger("mellon")
@@ -53,6 +53,11 @@ PIPELINE_REGISTRY: dict[str, PipelineRegistration] = {
         label="Flux Kontext",
         filters=("FluxKontextModularPipeline", "FluxKontextPipeline"),
         default_repo="black-forest-labs/FLUX.1-Kontext-dev",
+    ),
+    "ZImageModularPipeline": PipelineRegistration(
+        label="Z-Image",
+        filters=("ZImageModularPipeline", "ZImagePipeline"),
+        default_repo="Tongyi-MAI/Z-Image-Turbo",
     ),
 }
 
@@ -217,9 +222,14 @@ class AutoModelLoader(NodeBase):
         else:
             real_model_id = ""
 
-        spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
-        model = spec.load(torch_dtype=dtype)
-        comp_id = components.add(model_type, model, collection=self.node_id)
+        try:
+            spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
+            model = spec.load(torch_dtype=dtype)
+            comp_id = components.add(model_type, model, collection=self.node_id)
+        except ValueError as e:
+            self.notify(f"Error loading model: {e}", variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
+            raise e
+
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
         logger.debug(f" AutoModelLoader: component manager: {components}")
 
@@ -278,6 +288,9 @@ class ModelsLoader(NodeBase):
             "label": "Use Auto CPU Offload",
             "type": "boolean",
             "value": True,
+            "onChange": [
+                {"action": "signal", "target": "text_encoders"},
+            ],
         },
         "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},

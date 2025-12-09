@@ -14,7 +14,7 @@ from diffusers.modular_pipelines import (
 
 from mellon.NodeBase import NodeBase
 
-from . import components
+from . import MESSAGE_DURATION, components
 
 
 logger = logging.getLogger("mellon")
@@ -47,7 +47,10 @@ def insert_preview_block(pipeline):
                 for sub_block_name, sub_block in blocks.sub_blocks.items():
                     insert_preview_block_recursive(sub_block, sub_block_name, preview_block)
 
-    insert_preview_block_recursive(pipeline.blocks.sub_blocks["denoise"], "", preview_block)
+    denoise_blocks = pipeline.blocks.sub_blocks.get("denoise")
+
+    if denoise_blocks is not None:
+        insert_preview_block_recursive(pipeline.blocks.sub_blocks["denoise"], "", preview_block)
 
 
 class Denoise(NodeBase):
@@ -55,7 +58,7 @@ class Denoise(NodeBase):
     category = "sampler"
     resizable = True
     params = {
-        "unet": {
+        "denoise_model": {
             "label": "Denoise Model",
             "display": "input",
             "type": "diffusers_auto_model",
@@ -163,7 +166,7 @@ class Denoise(NodeBase):
 
     def execute(
         self,
-        unet,
+        denoise_model,
         scheduler,
         embeddings,
         seed,
@@ -179,17 +182,41 @@ class Denoise(NodeBase):
         skip_image_size=False,
     ):
         logger.debug(f" Denoise ({self.node_id}) received parameters:")
-        logger.debug(f" - unet: {unet}")
-        logger.debug(f" - scheduler: {scheduler}")
-        logger.debug(f" - embeddings: {embeddings}")
         logger.debug(f" - width: {width}")
         logger.debug(f" - height: {height}")
         logger.debug(f" - seed: {seed}")
         logger.debug(f" - num_inference_steps: {num_inference_steps}")
         logger.debug(f" - guidance_scale: {guidance_scale}")
 
-        device = unet["execution_device"]
-        repo_id = unet["repo_id"]
+        if denoise_model is None:
+            self.notify(
+                "Connect the `Denoise Model` from the `Load Models` node",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise ValueError("Denoise Model is None")
+
+        if embeddings is None:
+            self.notify(
+                "Connect the `Text Embeddings` from the `Encode Prompt` node",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise ValueError("Text Embeddings is None")
+
+        if scheduler is None:
+            self.notify(
+                "Connect the `Scheduler` from the `Load Models` node",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise ValueError("Scheduler is None")
+
+        device = denoise_model["execution_device"]
+        repo_id = denoise_model["repo_id"]
         # derive auto blocks from repo_id
         auto_blocks = ModularPipeline.from_pretrained(repo_id).blocks
         denoise_blocks = auto_blocks.sub_blocks.pop("denoise")
@@ -204,7 +231,9 @@ class Denoise(NodeBase):
                 progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
                 self.progress(progress)
 
-        unet_component_dict = components.get_components_by_ids(ids=[unet["model_id"]], return_dict_with_names=True)
+        unet_component_dict = components.get_components_by_ids(
+            ids=[denoise_model["model_id"]], return_dict_with_names=True
+        )
         scheduler_component_dict = components.get_components_by_ids(
             ids=[scheduler["model_id"]], return_dict_with_names=True
         )
