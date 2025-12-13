@@ -18,13 +18,15 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
             "height",
             "width",
         ],
+        "required_inputs": ["control_image"],
         "model_inputs": [
             "controlnet",
         ],
+        "required_model_inputs": ["controlnet"],
         "outputs": [
             "controlnet_out",
         ],
-        "block_names": [None],
+        "block_name": None,
     },
     "denoise": {
         "inputs": [
@@ -41,17 +43,19 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
             # ip_adapter is optional and custom; include if available
             "ip_adapter",
         ],
+        "required_inputs": ["embeddings"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "latents_preview",
             "doc"
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -59,38 +63,44 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
-        "block_names": ["vae_encoder"],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
             "prompt",
             "negative_prompt",
         ],
+        "required_inputs": ["prompt"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
-        "block_names": ["text_encoder"],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
-        "block_names": ["decode"],
+        "block_name": "decode",
     },
 }
 
@@ -104,14 +114,16 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
             "height",
             "width",
         ],
+        "required_inputs": ["control_image"],
         "model_inputs": [
             "controlnet",
             "vae",
         ],
+        "required_model_inputs": ["controlnet", "vae"],
         "outputs": [
             "controlnet_out",
         ],
-        "block_names": ["controlnet_vae_encoder"],
+        "block_name": "controlnet_vae_encoder",
     },
     "denoise": {
         "inputs": [
@@ -125,16 +137,18 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
             "strength",
             "controlnet",
         ],
+        "required_inputs": ["embeddings"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "doc",
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -142,35 +156,44 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
             "prompt",
             "negative_prompt",
         ],
+        "required_inputs": ["prompt"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
+        "block_name": "decode",
     },
 }
 
@@ -185,16 +208,18 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
             "guidance_scale",
             MellonParam(name="image_latents", label="Image Latents", type="latents", display="input"),
         ],
+        "required_inputs": ["embeddings", "image_latents"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "doc",
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -202,12 +227,15 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
@@ -215,23 +243,29 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
             "negative_prompt",
             "image",
         ],
+        "required_inputs": ["prompt", "image"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
+        "block_name": "decode",
     },
 }
 
@@ -246,16 +280,18 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
             "guidance_scale",
             MellonParam(name="image_latents", label="Image Latents", type="latents", display="input"),
         ],
+        "required_inputs": ["embeddings", "image_latents"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "doc",
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -263,12 +299,15 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
@@ -276,23 +315,29 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
             "negative_prompt",
             "image",
         ],
+        "required_inputs": ["prompt", "image"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
+        "block_name": "decode",
     },
 }
 
@@ -307,13 +352,15 @@ Flux_NODE_TYPES_PARAMS_MAP = {
             "height",
             "width",
         ],
+        "required_inputs": ["control_image"],
         "model_inputs": [
             "controlnet",
         ],
+        "required_model_inputs": ["controlnet"],
         "outputs": [
             "controlnet_out",
         ],
-        "block_names": [None],
+        "block_name": None,
     },
     "denoise": {
         "inputs": [
@@ -327,16 +374,18 @@ Flux_NODE_TYPES_PARAMS_MAP = {
             "strength",
             "controlnet",
         ],
+        "required_inputs": ["embeddings"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "doc",
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -344,35 +393,44 @@ Flux_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
             "prompt",
             "negative_prompt",
         ],
+        "required_inputs": ["prompt"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
+        "block_name": "decode",
     },
 }
 
@@ -382,23 +440,23 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
     "denoise": {
         "inputs": [
             "embeddings",
-            "width",
-            "height",
             "seed",
             "num_inference_steps",
             "guidance_scale",
             MellonParam(name="image_latents", label="Image Latents", type="latents", display="input"),
         ],
+        "required_inputs": ["embeddings", "image_latents"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
         ],
+        "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
             "latents",
             "doc",
         ],
-        "block_names": ["denoise"],
+        "block_name": "denoise",
     },
     "vae_encoder": {
         "inputs": [
@@ -406,35 +464,44 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
             "width",
             "height",
         ],
+        "required_inputs": ["image"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
         ],
+        "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
             "prompt",
             "negative_prompt",
         ],
+        "required_inputs": ["prompt"],
         "model_inputs": [
             "text_encoders",
         ],
+        "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
         ],
+        "block_name": "text_encoder",
     },
     "decoder": {
         "inputs": [
             "latents",
         ],
+        "required_inputs": ["latents"],
         "model_inputs": [
             "vae",
         ],
+        "required_model_inputs": ["vae"],
         "outputs": [
             "images",
         ],
+        "block_name": "decode",
     },
 }
 
@@ -498,8 +565,10 @@ def _register_pipeline(
                 inputs=spec.get("inputs", []),
                 model_inputs=spec.get("model_inputs", []),
                 outputs=spec.get("outputs", []),
-                blocks_names=spec.get("block_names", []),
+                block_name=spec.get("block_name", None),
                 node_type=node_type,
+                required_inputs=spec.get("required_inputs", []),
+                required_model_inputs=spec.get("required_model_inputs", []),
             )
         node_configs[node_type] = node_config
     registry.register(
@@ -671,10 +740,7 @@ def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
     node_type_blocks = None
     pipeline = pipeline_class()
 
-    if node_type_config is not None and node_type_config.blocks_names:
-        blocks_dict = {
-            name: block for name, block in pipeline.blocks.sub_blocks.items() if name in node_type_config.blocks_names
-        }
-        node_type_blocks = SequentialPipelineBlocks.from_blocks_dict(blocks_dict)
+    if node_type_config is not None and node_type_config.block_name:
+        node_type_blocks = pipeline.blocks.sub_blocks[node_type_config.block_name]
 
     return node_type_blocks, node_type_config

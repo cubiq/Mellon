@@ -61,7 +61,7 @@ class DecodeLatents(NodeBase):
     def execute(self, vae, latents):
         logger.debug(f" DecodeLatents ({self.node_id}) received parameters:")
         logger.debug(f" - vae: {vae}")
-        logger.debug(f" - latents: {latents['latents'].shape}")
+        logger.debug(f" - latents: {latents.shape}")
 
         vae = vae.copy()
         repo_id = vae.pop("repo_id")
@@ -73,7 +73,7 @@ class DecodeLatents(NodeBase):
             return_dict_with_names=True
         )
         self._decoder_node.update_components(**vae_component_dict)
-        image = self._decoder_node(**latents, output="images")[0]
+        image = self._decoder_node(latents=latents, output="images")[0]
 
         logger.debug(f" components: {components}")
 
