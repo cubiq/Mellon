@@ -153,18 +153,21 @@ class Denoise(NodeBase):
     ):
 
         kwargs = dict(kwargs)
-        # 1. Get the config for this model_type's denoise node
+        # 1. Get node config
         blocks, node_config = pipeline_class_to_mellon_node_config(
             self._pipeline_class, self.node_type
         )
 
+        # 2. create pipeline
+        
+        # get device and repo_id from kwargs
         unet = kwargs.get("unet")
         device = unet["execution_device"]
         repo_id = unet["repo_id"]
 
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
-        # YiYi TODO: look into the preview block, remove for now
+        # YiYi TODO: add the preview block
         # insert_preview_block(self._denoise_node)
 
         # def preview_callback(latents, step_index: int, scheduler_order: int):
@@ -172,7 +175,9 @@ class Denoise(NodeBase):
         #         self.trigger_output("latents_preview", latents)
         #         progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
         #         self.progress(progress)
-        # YiYi Notes: take an extra step to cast the params to the correct type. This due to Mellon bugs, should not need to take this step.
+
+        # YiYi Notes: take an extra step to cast the params to the correct type. 
+        # This due to Mellon bugs, should not need to take this step.
         for param_name, param_config in node_config.inputs.items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
@@ -181,6 +186,9 @@ class Denoise(NodeBase):
                 elif param_type == "int":
                     kwargs[param_name] = int(kwargs[param_name])
 
+        
+        # 3. update componenets
+        # get components to update from the kwargs based on node_config.model_inputs
         components_to_update = {}
         model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
  
@@ -193,6 +201,8 @@ class Denoise(NodeBase):
         if components_to_update:
             self._pipeline.update_components(**components_to_update)
 
+
+        # 4. compile a dict of runtime inputs from kwargs based on node_config.inputs    
         node_kwargs = {}
         input_names = list(node_config.inputs.keys()) if node_config.inputs else []
 
@@ -201,17 +211,22 @@ class Denoise(NodeBase):
             if value is None:
                 continue
             
-            # special case #1: seed -> generator
+            # special case #1: `seed` -> always create a `generator`
             if name == "seed":
                 generator = torch.Generator(device=device).manual_seed(value)
                 node_kwargs["generator"] = generator
             
-            # special case #2: guidance_scale -> new guider
-            elif name == "guidance_scale" and "guider" in self._pipeline.component_names and "guider" not in components_to_update:
-                guider_spec = self._pipeline.get_component_spec("guider")
-                guider = guider_spec.create(guidance_scale=value)
-                self._pipeline.update_components(guider=guider)
+            # special case #2: passed `guidance_scale` but pipeline does not accept it 
+            # -> potentially create a new guider if pipeline support it
+            elif name == "guidance_scale" and "guidance_scale" not in blocks.input_names:
+                if "guider" in self._pipeline.component_names and "guider" not in components_to_update:
+                    guider_spec = self._pipeline.get_component_spec("guider")
+                    guider = guider_spec.create(guidance_scale=value)
+                    self._pipeline.update_components(guider=guider)
             
+
+            # if a dict is passed and is not an pipeline input, we unpack and process its contents
+            # e.g. `embeddings` from text_encoder node
             elif isinstance(value, dict) and name not in blocks.input_names:
                 for k, v in value.items():
                     if k in blocks.input_names:
@@ -223,15 +238,19 @@ class Denoise(NodeBase):
                             f"Expected inputs:\n  - {expected_inputs} \n"
                             f"Blocks: {blocks}"
                             )
+            # pass the value as it is to the pipeline
             else:
                 node_kwargs[name] = value
 
+        # 5. figure out the outputs to return based on node_config.outputs
         outputs = {}
         output_names = list(node_config.outputs.keys()) if node_config.outputs else []
+         # "doc" is a standard node output but not a pipeline output
         if "doc" in output_names:
             output_names.remove("doc")
             outputs["doc"] = self._pipeline.blocks.doc
 
+        # 6. run the pipeline and update the outputs dict with the pipeline outputs
         node_outputs = self._pipeline(**node_kwargs, output=output_names)
         outputs.update(node_outputs)
 
