@@ -406,7 +406,7 @@ Flux_NODE_TYPES_PARAMS_MAP = {
     "text_encoder": {
         "inputs": [
             "prompt",
-            "negative_prompt",
+            # "negative_prompt", # YiYi Notes: the pipeline does not support this
         ],
         "required_inputs": ["prompt"],
         "model_inputs": [
@@ -477,7 +477,7 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
     "text_encoder": {
         "inputs": [
             "prompt",
-            "negative_prompt",
+            # "negative_prompt", # YiYi Notes: the pipeline does not support this
         ],
         "required_inputs": ["prompt"],
         "model_inputs": [

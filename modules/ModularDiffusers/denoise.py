@@ -134,14 +134,13 @@ class Denoise(NodeBase):
         diffusers_module = importlib.import_module("diffusers")
         self._pipeline_class = getattr(diffusers_module, model_type)
 
-        blocks, denoise_mellon_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
+        _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
         # not support this node type
-        if denoise_mellon_config is None:
+        if node_config is None:
             self.send_node_definition(node_params)
             return
 
-        # required params for controlnet
-        node_params.update(**denoise_mellon_config.to_mellon_dict()["params"])
+        node_params.update(**node_config.to_mellon_dict()["params"])
         self.send_node_definition(node_params)
 
     def __init__(self, node_id=None):
@@ -160,10 +159,9 @@ class Denoise(NodeBase):
 
         # 2. create pipeline
         
-        # get device and repo_id from kwargs
-        unet = kwargs.get("unet")
-        device = unet["execution_device"]
-        repo_id = unet["repo_id"]
+        # get device and repo_id
+        device = kwargs.get("unet")["execution_device"]
+        repo_id = kwargs.get("unet")["repo_id"]
 
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
