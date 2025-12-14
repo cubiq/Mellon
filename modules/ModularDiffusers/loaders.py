@@ -264,6 +264,7 @@ class ModelsLoader(NodeBase):
                 "set_filters",
                 {"action": "signal", "target": "unet_out"},
                 {"action": "signal", "target": "text_encoders"},
+                {"action": "signal", "target": "vae_out"},
             ],
         },
         "repo_id": {

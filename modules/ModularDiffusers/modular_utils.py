@@ -25,6 +25,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["controlnet"],
         "outputs": [
             "controlnet_out",
+            "doc",
         ],
         "block_name": None,
     },
@@ -60,8 +61,6 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -70,6 +69,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
@@ -85,6 +85,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -99,6 +100,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
@@ -122,6 +124,7 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["controlnet", "vae"],
         "outputs": [
             "controlnet_out",
+            "doc",
         ],
         "block_name": "controlnet_vae_encoder",
     },
@@ -153,8 +156,6 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -163,6 +164,7 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
@@ -178,6 +180,7 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -192,6 +195,7 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
@@ -224,8 +228,6 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -234,6 +236,7 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
@@ -250,6 +253,7 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -264,6 +268,7 @@ QwenImageEdit_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
@@ -296,8 +301,6 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -306,6 +309,7 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
@@ -322,6 +326,7 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -336,6 +341,7 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
@@ -359,6 +365,7 @@ Flux_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["controlnet"],
         "outputs": [
             "controlnet_out",
+            "doc",
         ],
         "block_name": None,
     },
@@ -390,8 +397,6 @@ Flux_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -400,6 +405,7 @@ Flux_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
@@ -415,6 +421,7 @@ Flux_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -429,6 +436,7 @@ Flux_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
@@ -461,8 +469,6 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
     "vae_encoder": {
         "inputs": [
             "image",
-            "width",
-            "height",
         ],
         "required_inputs": ["image"],
         "model_inputs": [
@@ -471,13 +477,14 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "image_latents",
+            "doc",
         ],
         "block_name": "vae_encoder",
     },
     "text_encoder": {
         "inputs": [
             "prompt",
-            # "negative_prompt", # YiYi Notes: the pipeline does not support this
+            #"negative_prompt",
         ],
         "required_inputs": ["prompt"],
         "model_inputs": [
@@ -486,6 +493,7 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["text_encoders"],
         "outputs": [
             "embeddings",
+            "doc",
         ],
         "block_name": "text_encoder",
     },
@@ -500,6 +508,7 @@ FluxKontext_NODE_TYPES_PARAMS_MAP = {
         "required_model_inputs": ["vae"],
         "outputs": [
             "images",
+            "doc",
         ],
         "block_name": "decode",
     },
