@@ -24,7 +24,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
         ],
         "required_model_inputs": ["controlnet"],
         "outputs": [
-            "controlnet_out",
+            "controlnet_bundle",
             "doc",
         ],
         "block_name": None,
@@ -40,7 +40,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
             "image_latents",
             "strength",
             # custom adapters coming in as inputs
-            "controlnet",
+            "controlnet_bundle",
             # ip_adapter is optional and custom; include if available
             "ip_adapter",
         ],
@@ -49,6 +49,7 @@ SDXL_NODE_TYPES_PARAMS_MAP = {
             "unet",
             "guider",
             "scheduler",
+            "controlnet_bundle",
         ],
         "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
@@ -123,7 +124,7 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
         ],
         "required_model_inputs": ["controlnet", "vae"],
         "outputs": [
-            "controlnet_out",
+            "controlnet_bundle",
             "doc",
         ],
         "block_name": "controlnet_vae_encoder",
@@ -138,13 +139,14 @@ QwenImage_NODE_TYPES_PARAMS_MAP = {
             "guidance_scale",
             "image_latents",
             "strength",
-            "controlnet",
+            "controlnet_bundle",
         ],
         "required_inputs": ["embeddings"],
         "model_inputs": [
             "unet",
             "guider",
             "scheduler",
+            "controlnet_bundle",
         ],
         "required_model_inputs": ["unet", "scheduler"],
         "outputs": [
@@ -349,26 +351,7 @@ QwenImageEditPlus_NODE_TYPES_PARAMS_MAP = {
 
 
 Flux_NODE_TYPES_PARAMS_MAP = {
-    "controlnet": {
-        "inputs": [
-            "control_image",
-            "controlnet_conditioning_scale",
-            "control_guidance_start",
-            "control_guidance_end",
-            "height",
-            "width",
-        ],
-        "required_inputs": ["control_image"],
-        "model_inputs": [
-            "controlnet",
-        ],
-        "required_model_inputs": ["controlnet"],
-        "outputs": [
-            "controlnet_out",
-            "doc",
-        ],
-        "block_name": None,
-    },
+    "controlnet": None, # YiYi notes: not yet supported in Modular
     "denoise": {
         "inputs": [
             "embeddings",
@@ -379,7 +362,6 @@ Flux_NODE_TYPES_PARAMS_MAP = {
             "guidance_scale",
             "image_latents",
             "strength",
-            "controlnet",
         ],
         "required_inputs": ["embeddings"],
         "model_inputs": [
@@ -748,6 +730,9 @@ def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
 
     node_type_blocks = None
     pipeline = pipeline_class()
+    print(f" pipeline: {pipeline}")
+    print(f" pipeline.blocks: {pipeline.blocks}")
+    print(f" pipeline.blocks.sub_blocks: {pipeline.blocks.sub_blocks}")
 
     if node_type_config is not None and node_type_config.block_name:
         node_type_blocks = pipeline.blocks.sub_blocks[node_type_config.block_name]

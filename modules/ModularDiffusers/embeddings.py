@@ -4,7 +4,7 @@ from diffusers.modular_pipelines import ModularPipeline
 import importlib
 
 from mellon.NodeBase import NodeBase
-from .loaders import collect_model_ids
+from .utils import collect_model_ids
 from .modular_utils import pipeline_class_to_mellon_node_config
 
 from . import components
@@ -95,7 +95,10 @@ class EncodePrompt(NodeBase):
             self.send_node_definition(node_params)
             return
 
-        node_params.update(**node_config.to_mellon_dict()["params"])
+        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update.pop("text_encoders", None)
+        
+        node_params.update(**node_params_to_update)
         # YiYi TODO: can we perserve the current user values in the UI for "string"/"float"/"int" params?
         self.send_node_definition(node_params)
 

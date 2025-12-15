@@ -15,6 +15,7 @@ from diffusers.modular_pipelines import (
 )
 
 from mellon.NodeBase import NodeBase
+from .utils import collect_model_ids
 
 from . import components
 
@@ -86,7 +87,7 @@ class Denoise(NodeBase):
                 },
                 {"action": "exec", "data": "update_node"},
                 {"action": "signal", "target": "guider"},
-                {"action": "signal", "target": "controlnet"},
+                {"action": "signal", "target": "controlnet_bundle"},
             ]
         },
     }
@@ -120,7 +121,7 @@ class Denoise(NodeBase):
                     },
                     {"action": "exec", "data": "update_node"},
                     {"action": "signal", "target": "guider"},
-                    {"action": "signal", "target": "controlnet"},
+                    {"action": "signal", "target": "controlnet_bundle"},
                 ]
             },
         }
@@ -139,8 +140,9 @@ class Denoise(NodeBase):
         if node_config is None:
             self.send_node_definition(node_params)
             return
-
-        node_params.update(**node_config.to_mellon_dict()["params"])
+        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update.pop("unet", None)
+        node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
 
     def __init__(self, node_id=None):
@@ -185,19 +187,19 @@ class Denoise(NodeBase):
                     kwargs[param_name] = int(kwargs[param_name])
 
         
-        # 3. update componenets
-        # get components to update from the kwargs based on node_config.model_inputs
-        components_to_update = {}
+        # 3. update components
+        expected_component_names = blocks.component_names
         model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
- 
-        for name in model_input_names:
-            model_dict = kwargs.get(name)
-            if model_dict is not None and isinstance(model_dict, dict) and "model_id" in model_dict:
-                component_kwargs = components.get_components_by_ids(ids=[model_dict["model_id"]], return_dict_with_names=True)
-                components_to_update.update(component_kwargs)
+        model_ids = collect_model_ids(
+            kwargs,
+            target_key_names=model_input_names,
+            target_model_names=expected_component_names,
+        )
 
-        if components_to_update:
-            self._pipeline.update_components(**components_to_update)
+        if model_ids:
+            components_to_update = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
+            if components_to_update:
+                self._pipeline.update_components(**components_to_update)
 
 
         # 4. compile a dict of runtime inputs from kwargs based on node_config.inputs    

@@ -5,7 +5,7 @@ from diffusers.modular_pipelines import ModularPipeline
 from PIL import Image
 
 from mellon.NodeBase import NodeBase
-from .loaders import collect_model_ids
+from .utils import collect_model_ids
 from .modular_utils import pipeline_class_to_mellon_node_config
 import importlib
 from . import components
@@ -132,8 +132,10 @@ class DecodeLatents(NodeBase):
         if node_config is None:
             self.send_node_definition(node_params)
             return
-
-        node_params.update(**node_config.to_mellon_dict()["params"])
+        
+        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update.pop("vae", None)
+        node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
 
     def execute(self, **kwargs):
@@ -288,8 +290,11 @@ class ImageEncode(NodeBase):
         if node_config is None:
             self.send_node_definition(node_params)
             return
+        
+        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update.pop("vae", None)
 
-        node_params.update(**node_config.to_mellon_dict()["params"])
+        node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
 
     def execute(self, **kwargs):
