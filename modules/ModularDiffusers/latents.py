@@ -133,7 +133,7 @@ class DecodeLatents(NodeBase):
             self.send_node_definition(node_params)
             return
         
-        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update = node_config["params"]
         node_params_to_update.pop("vae", None)
         node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
@@ -151,7 +151,7 @@ class DecodeLatents(NodeBase):
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
         # 3. Cast params to correct types (Mellon bug workaround)
-        for param_name, param_config in node_config.inputs.items():
+        for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
                 if param_type == "float":
@@ -161,7 +161,7 @@ class DecodeLatents(NodeBase):
 
         # 4. Update components
         expected_component_names = blocks.component_names
-        model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
+        model_input_names = node_config["model_input_names"]
         model_ids = collect_model_ids(
             kwargs,
             target_key_names=model_input_names,
@@ -173,9 +173,9 @@ class DecodeLatents(NodeBase):
             if components_to_update:
                 self._pipeline.update_components(**components_to_update)
 
-        # 5. Compile runtime inputs from kwargs based on node_config.inputs
+        # 5. Compile runtime inputs from kwargs based on node_config["input_names"]
         node_kwargs = {}
-        input_names = list(node_config.inputs.keys()) if node_config.inputs else []
+        input_names = node_config["input_names"]
 
         for name in input_names:
             if name not in kwargs:
@@ -192,8 +192,8 @@ class DecodeLatents(NodeBase):
         # 6. Run the pipeline
         node_output_state = self._pipeline(**node_kwargs)
 
-        # 7. Prepare outputs based on node_config.outputs
-        output_names = list(node_config.outputs.keys()) if node_config.outputs else []
+        # 7. Prepare outputs based on node_config["output_names"]
+        output_names = node_config["output_names"].copy()
         outputs = {}
         for name in output_names:
             if name == "doc":
@@ -291,7 +291,7 @@ class ImageEncode(NodeBase):
             self.send_node_definition(node_params)
             return
         
-        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update = node_config["params"]
         node_params_to_update.pop("vae", None)
 
         node_params.update(**node_params_to_update)
@@ -310,7 +310,7 @@ class ImageEncode(NodeBase):
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
         # 3. Cast params to correct types (Mellon bug workaround)
-        for param_name, param_config in node_config.inputs.items():
+        for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
                 if param_type == "float":
@@ -320,7 +320,7 @@ class ImageEncode(NodeBase):
 
         # 4. Update components
         expected_component_names = blocks.component_names
-        model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
+        model_input_names = node_config["model_input_names"]
         model_ids = collect_model_ids(
             kwargs,
             target_key_names=model_input_names,
@@ -332,9 +332,9 @@ class ImageEncode(NodeBase):
             if components_to_update:
                 self._pipeline.update_components(**components_to_update)
 
-        # 5. Compile runtime inputs from kwargs based on node_config.inputs
+        # 5. Compile runtime inputs from kwargs based on node_config["input_names"]
         node_kwargs = {}
-        input_names = list(node_config.inputs.keys()) if node_config.inputs else []
+        input_names = node_config["input_names"]
 
         for name in input_names:
             if name not in kwargs:
@@ -351,8 +351,8 @@ class ImageEncode(NodeBase):
         # 6. Run the pipeline
         node_output_state = self._pipeline(**node_kwargs)
 
-        # 7. Prepare outputs based on node_config.outputs
-        output_names = list(node_config.outputs.keys()) if node_config.outputs else []
+        # 7. Prepare outputs based on node_config["output_names"]
+        output_names = node_config["output_names"].copy()
         outputs = {}
         for name in output_names:
             if name == "doc":

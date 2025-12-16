@@ -1,7 +1,7 @@
 import logging
 
 from diffusers import ModularPipeline
-from diffusers.modular_pipelines.mellon_node_utils import MellonNodeConfig
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 from mellon.NodeBase import NodeBase
 
@@ -45,7 +45,7 @@ class DynamicBlockNode(NodeBase):
     }
 
     def _get_custom_params(self, repo_id):
-        custom_mellon_config = MellonNodeConfig.load_mellon_config(repo_id)
+        custom_mellon_config = MellonPipelineConfig.load(repo_id)
         custom_params = custom_mellon_config["params"]
 
         return custom_params

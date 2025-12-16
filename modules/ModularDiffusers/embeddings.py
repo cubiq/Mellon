@@ -95,7 +95,7 @@ class EncodePrompt(NodeBase):
             self.send_node_definition(node_params)
             return
 
-        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update = node_config["params"]
         node_params_to_update.pop("text_encoders", None)
         
         node_params.update(**node_params_to_update)
@@ -121,7 +121,7 @@ class EncodePrompt(NodeBase):
 
         # YiYi Notes: take an extra step to cast the params to the correct type. 
         # This due to Mellon bugs, should not need to take this step.
-        for param_name, param_config in node_config.inputs.items():
+        for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
                 if param_type == "float":
@@ -131,7 +131,7 @@ class EncodePrompt(NodeBase):
 
         # 3. update components
         expected_component_names = blocks.component_names
-        model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
+        model_input_names = node_config["model_input_names"]
         model_ids = collect_model_ids(
             kwargs, 
             target_key_names=model_input_names, 
@@ -143,9 +143,9 @@ class EncodePrompt(NodeBase):
             if components_to_update:
                 self._pipeline.update_components(**components_to_update)
 
-        # 4. compile a dict of runtime inputs from kwargs based on node_config.inputs
+        # 4. compile a dict of runtime inputs from kwargs based on node_config["input_names"]
         node_kwargs = {}
-        input_names = list(node_config.inputs.keys()) if node_config.inputs else []
+        input_names = node_config["input_names"]
         for name in input_names:
             if name not in kwargs:
                 continue
@@ -179,8 +179,8 @@ class EncodePrompt(NodeBase):
         # 5. run the pipeline,
         node_output_state = self._pipeline(**node_kwargs)
         
-        # 6. prepare the outputs dict based on node_config.outputs
-        output_names = list(node_config.outputs.keys()) if node_config.outputs else []
+        # 6. prepare the outputs dict based on node_config["output_names"]
+        output_names = node_config["output_names"].copy()
         outputs = {}
         for name in output_names:
             if name == "doc":

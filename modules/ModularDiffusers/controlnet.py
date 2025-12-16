@@ -248,7 +248,7 @@ class Controlnet(NodeBase):
             self.send_node_definition(node_params)
             return
 
-        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update = node_config["params"]
         node_params_to_update.pop("controlnet_bundle", None)
 
         node_params.update(**node_params_to_update)
@@ -267,7 +267,7 @@ class Controlnet(NodeBase):
 
         # 2. Cast params to correct types (Mellon bug workaround)
         # YiYi notes: should fix and remove in the future
-        for param_name, param_config in node_config.inputs.items():
+        for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
                 if param_type == "float":
@@ -283,7 +283,7 @@ class Controlnet(NodeBase):
 
             # 4. Update components
             expected_component_names = blocks.component_names
-            model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
+            model_input_names = node_config["model_input_names"]
             model_ids = collect_model_ids(
                 kwargs,
                 target_key_names=model_input_names,
@@ -297,7 +297,7 @@ class Controlnet(NodeBase):
 
             # 5. Compile runtime inputs from kwargs based on node_config.inputs
             node_kwargs = {}
-            input_names = list(node_config.inputs.keys()) if node_config.inputs else []
+            input_names = node_config["input_names"]
 
             for name in input_names:
                 if name not in kwargs:

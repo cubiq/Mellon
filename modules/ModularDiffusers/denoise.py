@@ -140,7 +140,7 @@ class Denoise(NodeBase):
         if node_config is None:
             self.send_node_definition(node_params)
             return
-        node_params_to_update = node_config.to_mellon_dict()["params"]
+        node_params_to_update = node_config["params"]
         node_params_to_update.pop("unet", None)
         node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
@@ -178,7 +178,7 @@ class Denoise(NodeBase):
 
         # YiYi Notes: take an extra step to cast the params to the correct type. 
         # This due to Mellon bugs, should not need to take this step.
-        for param_name, param_config in node_config.inputs.items():
+        for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
                 param_type = param_config.get("type", None)
                 if param_type == "float":
@@ -189,7 +189,7 @@ class Denoise(NodeBase):
         
         # 3. update components
         expected_component_names = blocks.component_names
-        model_input_names = list(node_config.model_inputs.keys()) if node_config.model_inputs else []
+        model_input_names = node_config["model_input_names"]
         model_ids = collect_model_ids(
             kwargs,
             target_key_names=model_input_names,
@@ -202,9 +202,9 @@ class Denoise(NodeBase):
                 self._pipeline.update_components(**components_to_update)
 
 
-        # 4. compile a dict of runtime inputs from kwargs based on node_config.inputs    
+        # 4. compile a dict of runtime inputs from kwargs based on node_config["input_names"]    
         node_kwargs = {}
-        input_names = list(node_config.inputs.keys()) if node_config.inputs else []
+        input_names = node_config["input_names"]
 
         for name in input_names:
             value = kwargs.get(name)
@@ -242,9 +242,9 @@ class Denoise(NodeBase):
             else:
                 node_kwargs[name] = value
 
-        # 5. figure out the outputs to return based on node_config.outputs
+        # 5. figure out the outputs to return based on node_config["output_names"]
         outputs = {}
-        output_names = list(node_config.outputs.keys()) if node_config.outputs else []
+        output_names = node_config["output_names"].copy()
          # "doc" is a standard node output but not a pipeline output
         if "doc" in output_names:
             output_names.remove("doc")
