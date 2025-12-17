@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nunchaku = [
-  "nunchaku>=1.0.1.dev20250924; sys_platform == 'linux' or sys_platform == 'win32'"
+  "nunchaku==1.0.2; sys_platform == 'linux' or sys_platform == 'win32'"
 ]
 spandrel = ["spandrel"]
 background-removal = ["transparent-background"]
@@ -59,7 +59,7 @@ torchvision = [
   { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 nunchaku = [
-  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.1dev20250924/nunchaku-1.0.1.dev20250924+torch2.8-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
-  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.1dev20250924/nunchaku-1.0.1.dev20250924+torch2.8-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.2/nunchaku-1.0.2+torch2.9-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://github.com/nunchaku-tech/nunchaku/releases/download/v1.0.2/nunchaku-1.0.2+torch2.9-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
 ]
 diffusers = { git = "https://github.com/huggingface/diffusers" }
