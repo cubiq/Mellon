@@ -80,6 +80,10 @@ class Denoise(NodeBase):
                         "controlnet",
                         "ip_adapter",
                     ],
+                    "ZImageModularPipeline": [
+                        "width",
+                        "height",
+                    ],
                     "": [],
                 },
                 {
