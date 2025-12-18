@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 from diffusers.modular_pipelines.mellon_node_utils import MellonParam, MellonPipelineConfig
 import logging
+from diffusers import ModularPipeline
 
 logger = logging.getLogger("mellon")
 
@@ -553,9 +554,22 @@ FLUX_KONTEXT_PIPELINE_CONFIG = MellonPipelineConfig(
     default_dtype="bfloat16",
 )
 
+
+class DummyCustomPipeline:
+    """Placeholder class used as registry key for custom pipelines."""
+    repo_id = None
+
+    def __new__(cls):
+        from diffusers import ModularPipeline
+        return ModularPipeline.from_pretrained(cls.repo_id, trust_remote_code=True)
+
+
+
+DUMMY_CUSTOM_PIPELINE_CONFIG = MellonPipelineConfig(node_specs = {}, label = "Custom", default_repo = "", default_dtype = "bfloat16")
+
 # Minimal modular registry for Mellon node configs
 class ModularMellonNodeRegistry:
-    """Registry mapping pipeline class to its MellonPipelineConfig."""
+    """Registry mapping pipeline class to its config, including label, default_repo, default_dtype, and node_params."""
 
     def __init__(self):
         self._registry: Dict[type, MellonPipelineConfig] = {}
@@ -580,6 +594,9 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
     """Initialize the registry and register all available pipeline configs."""
     logger.info("Initializing Mellon registry")
     registry._initialized = True
+    
+    # register DummyCustomPipeline with empty node specs
+    registry.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
 
     try:
         from diffusers import StableDiffusionXLModularPipeline
@@ -644,6 +661,7 @@ def get_all_model_types() -> Dict[str, str]:
     return all_labels
 
 
+# YiYi notes: not used for now
 def get_model_type_signal_data() -> Dict[str, str]:
     """Get model type mapping for onSignal value actions.
     

@@ -6,7 +6,7 @@ from PIL import Image
 
 from mellon.NodeBase import NodeBase
 from .utils import collect_model_ids
-from .modular_utils import pipeline_class_to_mellon_node_config
+from .modular_utils import pipeline_class_to_mellon_node_config, DummyCustomPipeline
 import importlib
 from . import components
 
@@ -75,6 +75,7 @@ class DecodeLatents(NodeBase):
                         "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                         "FluxModularPipeline": "FluxModularPipeline",
                         "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        "DummyCustomPipeline": "DummyCustomPipeline",
                     },
                 },
                 {"action": "exec", "data": "update_node"},
@@ -110,6 +111,7 @@ class DecodeLatents(NodeBase):
                             "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                             "FluxModularPipeline": "FluxModularPipeline",
                             "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                            "DummyCustomPipeline": "DummyCustomPipeline",
                         },
                     },
                     {"action": "exec", "data": "update_node"},
@@ -123,9 +125,11 @@ class DecodeLatents(NodeBase):
             return None
 
         self._model_type = model_type
-
-        diffusers_module = importlib.import_module("diffusers")
-        self._pipeline_class = getattr(diffusers_module, model_type)
+        if model_type == "DummyCustomPipeline":
+            self._pipeline_class = DummyCustomPipeline
+        else:
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
@@ -232,6 +236,7 @@ class ImageEncode(NodeBase):
                         "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                         "FluxModularPipeline": "FluxModularPipeline",
                         "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        "DummyCustomPipeline": "DummyCustomPipeline",
                     },
                 },
                 {"action": "exec", "data": "update_node"},
@@ -268,6 +273,7 @@ class ImageEncode(NodeBase):
                             "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                             "FluxModularPipeline": "FluxModularPipeline",
                             "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                            "DummyCustomPipeline": "DummyCustomPipeline",
                         },
                     },
                     {"action": "exec", "data": "update_node"},
@@ -281,9 +287,11 @@ class ImageEncode(NodeBase):
             return None
 
         self._model_type = model_type
-
-        diffusers_module = importlib.import_module("diffusers")
-        self._pipeline_class = getattr(diffusers_module, model_type)
+        if model_type == "DummyCustomPipeline":
+            self._pipeline_class = DummyCustomPipeline
+        else:
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 

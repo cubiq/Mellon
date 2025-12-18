@@ -9,7 +9,8 @@ from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
-from .modular_utils import get_all_model_types, get_model_type_metadata
+from .modular_utils import get_all_model_types, get_model_type_metadata, MODULAR_REGISTRY, DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 
 logger = logging.getLogger("mellon")
@@ -171,8 +172,6 @@ class AutoModelLoader(NodeBase):
         return {"model": components.get_model_info(comp_id)}
 
 
-
-
 class ModelsLoader(NodeBase):
     label = "Load Models"
     category = "loader"
@@ -305,6 +304,21 @@ class ModelsLoader(NodeBase):
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
         )
+
+        if model_type == "DummyCustomPipeline":
+
+            # update node param
+            mellon_config = MellonPipelineConfig.load(real_repo_id)
+            mellon_config.label = "Custom"
+
+            # update repo_id for DummyCustomPipeline
+            DummyCustomPipeline.repo_id = real_repo_id
+            # register DummyCustomPipeline to MODULAR_REGISTRY
+            MODULAR_REGISTRY.register(DummyCustomPipeline, mellon_config)
+        
+        else:
+            DummyCustomPipeline.repo_id = None
+            MODULAR_REGISTRY.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
 
         ALL_COMPONENTS = self.loader.pretrained_component_names
 

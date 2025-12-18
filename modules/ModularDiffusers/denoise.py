@@ -1,7 +1,7 @@
 import logging
 from typing import Any, List, Tuple
 import importlib
-from .modular_utils import pipeline_class_to_mellon_node_config, get_model_type_signal_data
+from .modular_utils import pipeline_class_to_mellon_node_config, get_model_type_signal_data, DummyCustomPipeline
 
 import torch
 from diffusers import ComponentsManager
@@ -83,6 +83,7 @@ class Denoise(NodeBase):
                         "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                         "FluxModularPipeline": "FluxModularPipeline",
                         "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        "DummyCustomPipeline": "DummyCustomPipeline",
                     },
                 },
                 {"action": "exec", "data": "update_node"},
@@ -117,6 +118,7 @@ class Denoise(NodeBase):
                             "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
                             "FluxModularPipeline": "FluxModularPipeline",
                             "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                            "DummyCustomPipeline": "DummyCustomPipeline",
                         },
                     },
                     {"action": "exec", "data": "update_node"},
@@ -132,8 +134,11 @@ class Denoise(NodeBase):
 
         self._model_type = model_type
 
-        diffusers_module = importlib.import_module("diffusers")
-        self._pipeline_class = getattr(diffusers_module, model_type)
+        if model_type == "DummyCustomPipeline":
+            self._pipeline_class = DummyCustomPipeline
+        else:
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
         # not support this node type
@@ -241,6 +246,11 @@ class Denoise(NodeBase):
             # pass the value as it is to the pipeline
             else:
                 node_kwargs[name] = value
+        
+        # YiYi Notes: workaround on mellon bug, height/width was hidden but values are still passed in.
+        if "image_latents" in node_kwargs and node_kwargs["image_latents"] is not None:
+            node_kwargs.pop("height", None)
+            node_kwargs.pop("width", None)
 
         # 5. figure out the outputs to return based on node_config["output_names"]
         outputs = {}
