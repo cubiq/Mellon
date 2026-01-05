@@ -1,5 +1,7 @@
 import logging
 from typing import Any, List, Tuple
+import importlib
+from .modular_utils import pipeline_class_to_mellon_node_config, get_model_type_signal_data, DummyCustomPipeline
 
 import torch
 from diffusers import ComponentsManager
@@ -13,6 +15,7 @@ from diffusers.modular_pipelines import (
 )
 
 from mellon.NodeBase import NodeBase
+from .utils import collect_model_ids
 
 from . import components
 
@@ -49,203 +52,216 @@ def insert_preview_block(pipeline):
 
     insert_preview_block_recursive(pipeline.blocks.sub_blocks["denoise"], "", preview_block)
 
+# SIGNAL_DATA = get_model_type_signal_data()
 
 class Denoise(NodeBase):
     label = "Denoise"
     category = "sampler"
     resizable = True
+    skipParamsCheck = True
+    node_type = "denoise"
     params = {
+        "model_type": {
+            "label": "Model Type", 
+            "type": "string", 
+            "default": "", 
+            "hidden": True  # Hidden field to receive signal data
+        },
         "unet": {
-            "label": "Denoise Model",
+            "label": "Denoise Model *",
             "display": "input",
             "type": "diffusers_auto_model",
             "onSignal": [
-                {"action": "signal", "target": "guider"},
-                {"action": "signal", "target": "controlnet"},
                 {
-                    "StableDiffusionXLModularPipeline": ["width", "height", "ip_adapter", "controlnet"],
-                    "QwenImageModularPipeline": ["width", "height", "controlnet"],
-                    "": [],
+                    "action": "value",
+                    "target": "model_type",
+                    # "data": SIGNAL_DATA, # YiYi Notes: not working
+                    "data": {
+                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                        "QwenImageModularPipeline": "QwenImageModularPipeline",
+                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                        "FluxModularPipeline": "FluxModularPipeline",
+                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        "DummyCustomPipeline": "DummyCustomPipeline",
+                    },
                 },
-            ],
-        },
-        "scheduler": {"label": "Scheduler", "display": "input", "type": "diffusers_auto_model"},
-        "embeddings": {"label": "Text Embeddings", "display": "input", "type": "embeddings"},
-        "latents": {"label": "Latents", "type": "latents", "display": "output"},
-        "width": {"label": "Width", "type": "int", "default": 1024, "min": 64, "step": 8},
-        "height": {"label": "Height", "type": "int", "default": 1024, "min": 64, "step": 8},
-        "seed": {"label": "Seed", "type": "int", "display": "random", "default": 0, "min": 0, "max": 4294967295},
-        "num_inference_steps": {
-            "label": "Steps",
-            "type": "int",
-            "display": "slider",
-            "default": 25,
-            "min": 1,
-            "max": 100,
-        },
-        "guidance_scale": {
-            "label": "Guidance Scale",
-            "type": "float",
-            "display": "slider",
-            "default": 5,
-            "min": 1.0,
-            "max": 30.0,
-            "step": 0.1,
-        },
-        "latents_preview": {"label": "Latents Preview", "display": "output", "type": "latent"},
-        "guider": {
-            "label": "Guider",
-            "display": "input",
-            "type": "custom_guider",
-            "onChange": {False: ["guidance_scale"], True: []},
-        },
-        "image_latents": {
-            "label": "Image Latents",
-            "type": "latents",
-            "display": "input",
-            "onChange": {False: ["height", "width"], True: ["strength"]},
-        },
-        "strength": {
-            "label": "Strength",
-            "type": "float",
-            "default": 0.5,
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01,
-        },
-        "controlnet": {
-            "label": "Controlnet",
-            "type": "custom_controlnet",
-            "display": "input",
-        },
-        "ip_adapter": {
-            "label": "IP Adapter",
-            "type": "custom_ip_adapter",
-            "display": "input",
-        },
-        "doc": {
-            "label": "Doc",
-            "display": "output",
-            "type": "string",
+                {"action": "exec", "data": "update_node"},
+                {"action": "signal", "target": "guider"},
+                {"action": "signal", "target": "controlnet_bundle"},
+            ]
         },
     }
 
+    def update_node(self, values, ref):
+
+        node_params  = {
+            "model_type": {
+                "label": "Model Type", 
+                "type": "string", 
+                "default": "", 
+                "hidden": True  # Hidden field to receive signal data
+            },
+            "unet": {
+                "label": "Denoise Model *",
+                "display": "input",
+                "type": "diffusers_auto_model",
+                "onSignal": [
+                    {
+                        "action": "value",
+                        "target": "model_type",
+                        # "data": SIGNAL_DATA, # YiYi Notes: not working
+                        "data": {
+                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                            "QwenImageModularPipeline": "QwenImageModularPipeline",
+                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                            "FluxModularPipeline": "FluxModularPipeline",
+                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                            "DummyCustomPipeline": "DummyCustomPipeline",
+                        },
+                    },
+                    {"action": "exec", "data": "update_node"},
+                    {"action": "signal", "target": "guider"},
+                    {"action": "signal", "target": "controlnet_bundle"},
+                ]
+            },
+        }
+        model_type = values.get("model_type", "")
+
+        if model_type == "" or self._model_type == model_type:
+            return None
+
+        self._model_type = model_type
+
+        if model_type == "DummyCustomPipeline":
+            self._pipeline_class = DummyCustomPipeline
+        else:
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
+
+        _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
+        # not support this node type
+        if node_config is None:
+            self.send_node_definition(node_params)
+            return
+        node_params_to_update = node_config["params"]
+        node_params_to_update.pop("unet", None)
+        node_params.update(**node_params_to_update)
+        self.send_node_definition(node_params)
+
     def __init__(self, node_id=None):
         super().__init__(node_id)
-        self._denoise_node = None
+        self._model_type = ""
+        self._pipeline_class = None
 
-    def execute(
-        self,
-        unet,
-        scheduler,
-        embeddings,
-        seed,
-        num_inference_steps,
-        guidance_scale,
-        guider=None,
-        image_latents=None,
-        strength=0.5,
-        controlnet=None,
-        ip_adapter=None,
-        width=None,
-        height=None,
+    def execute(self, **kwargs
     ):
-        logger.debug(f" Denoise ({self.node_id}) received parameters:")
-        logger.debug(f" - unet: {unet}")
-        logger.debug(f" - scheduler: {scheduler}")
-        logger.debug(f" - embeddings: {embeddings}")
-        logger.debug(f" - width: {width}")
-        logger.debug(f" - height: {height}")
-        logger.debug(f" - seed: {seed}")
-        logger.debug(f" - num_inference_steps: {num_inference_steps}")
-        logger.debug(f" - guidance_scale: {guidance_scale}")
 
-        device = unet["execution_device"]
-        repo_id = unet["repo_id"]
-        # derive auto blocks from repo_id
-        auto_blocks = ModularPipeline.from_pretrained(repo_id).blocks
-        denoise_blocks = auto_blocks.sub_blocks.pop("denoise")
-
-        self._denoise_node = denoise_blocks.init_pipeline(repo_id, components_manager=components)
-
-        insert_preview_block(self._denoise_node)
-
-        def preview_callback(latents, step_index: int, scheduler_order: int):
-            if (step_index + 1) % scheduler_order == 0:
-                self.trigger_output("latents_preview", latents)
-                progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
-                self.progress(progress)
-
-        unet_component_dict = components.get_components_by_ids(ids=[unet["model_id"]], return_dict_with_names=True)
-        scheduler_component_dict = components.get_components_by_ids(
-            ids=[scheduler["model_id"]], return_dict_with_names=True
+        kwargs = dict(kwargs)
+        # 1. Get node config
+        blocks, node_config = pipeline_class_to_mellon_node_config(
+            self._pipeline_class, self.node_type
         )
-        self._denoise_node.update_components(**scheduler_component_dict, **unet_component_dict)
 
-        generator = torch.Generator(device=device).manual_seed(seed)
+        # 2. create pipeline
+        
+        # get device and repo_id
+        device = kwargs.get("unet")["execution_device"]
+        repo_id = kwargs.get("unet")["repo_id"]
 
-        denoise_kwargs = {
-            **embeddings,
-            "num_inference_steps": int(num_inference_steps),
-            "generator": generator,
-            "width": int(width),
-            "height": int(height),
-        }
+        self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
-        if guider is None:
-            guider_spec = self._denoise_node.get_component_spec("guider")
-            guider_spec.config["guidance_scale"] = guidance_scale
-            self._denoise_node.update_components(guider=guider_spec)
-        else:
-            self._denoise_node.update_components(guider=guider)
+        # YiYi TODO: add the preview block
+        # insert_preview_block(self._denoise_node)
 
-        if image_latents is not None:
-            denoise_kwargs["image_latents"] = image_latents
-            denoise_kwargs["strength"] = float(strength)
+        # def preview_callback(latents, step_index: int, scheduler_order: int):
+        #     if (step_index + 1) % scheduler_order == 0:
+        #         self.trigger_output("latents_preview", latents)
+        #         progress = int((step_index + 1) / num_inference_steps * 100 / scheduler_order)
+        #         self.progress(progress)
 
-        if controlnet is not None:
-            controlnet_inputs = dict(controlnet["controlnet_inputs"])
-            controlnet_scale = float(controlnet_inputs.get("controlnet_conditioning_scale", 1.0))
-            control_guidance_start = float(controlnet_inputs.get("control_guidance_start", 0.0))
-            control_guidance_end = float(controlnet_inputs.get("control_guidance_end", 1.0))
-            controlnet_width = int(controlnet_inputs.get("width", width))
-            controlnet_height = int(controlnet_inputs.get("height", height))
-            denoise_kwargs.update({
-                **controlnet_inputs,
-                "controlnet_conditioning_scale": controlnet_scale,
-                "control_guidance_start": control_guidance_start,
-                "control_guidance_end": control_guidance_end,
-                "width": controlnet_width,
-                "height": controlnet_height
-            })
+        # YiYi Notes: take an extra step to cast the params to the correct type. 
+        # This due to Mellon bugs, should not need to take this step.
+        for param_name, param_config in node_config["params"].items():
+            if param_name in kwargs and kwargs[param_name] is not None:
+                param_type = param_config.get("type", None)
+                if param_type == "float":
+                    kwargs[param_name] = float(kwargs[param_name])
+                elif param_type == "int":
+                    kwargs[param_name] = int(kwargs[param_name])
 
-            model_ids = controlnet["controlnet_model"]["model_id"]
-            if isinstance(model_ids, list):
-                # TODO: this is not working yet
-                controlnet_components = [components.get_one(model_id) for model_id in model_ids]
-                controlnet_components = MultiControlNetModel(controlnet_components)
+        
+        # 3. update components
+        expected_component_names = blocks.component_names
+        model_input_names = node_config["model_input_names"]
+        model_ids = collect_model_ids(
+            kwargs,
+            target_key_names=model_input_names,
+            target_model_names=expected_component_names,
+        )
+
+        if model_ids:
+            components_to_update = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
+            if components_to_update:
+                self._pipeline.update_components(**components_to_update)
+
+
+        # 4. compile a dict of runtime inputs from kwargs based on node_config["input_names"]    
+        node_kwargs = {}
+        input_names = node_config["input_names"]
+
+        for name in input_names:
+            value = kwargs.get(name)
+            if value is None:
+                continue
+            
+            # special case #1: `seed` -> always create a `generator`
+            if name == "seed":
+                generator = torch.Generator(device=device).manual_seed(value)
+                node_kwargs["generator"] = generator
+            
+            # special case #2: passed `guidance_scale` but pipeline does not accept it 
+            # -> potentially create a new guider if pipeline support it
+            elif name == "guidance_scale" and "guidance_scale" not in blocks.input_names:
+                if "guider" in self._pipeline.component_names and "guider" not in components_to_update:
+                    guider_spec = self._pipeline.get_component_spec("guider")
+                    guider = guider_spec.create(guidance_scale=value)
+                    self._pipeline.update_components(guider=guider)
+            
+
+            # if a dict is passed and is not an pipeline input, we unpack and process its contents
+            # e.g. `embeddings` from text_encoder node
+            elif isinstance(value, dict) and name not in blocks.input_names:
+                for k, v in value.items():
+                    if k in blocks.input_names:
+                        node_kwargs[k] = v
+                    else:
+                        expected_inputs = "\n  - ".join(blocks.input_names)
+                        logger.warning(
+                            f"Input '{name}:{k}' is not expected by {self.node_type} blocks.\n"
+                            f"Expected inputs:\n  - {expected_inputs} \n"
+                            f"Blocks: {blocks}"
+                            )
+            # pass the value as it is to the pipeline
             else:
-                controlnet_components = components.get_one(model_ids)
+                node_kwargs[name] = value
+        
+        # YiYi Notes: workaround on mellon bug, height/width was hidden but values are still passed in.
+        if "image_latents" in node_kwargs and node_kwargs["image_latents"] is not None:
+            node_kwargs.pop("height", None)
+            node_kwargs.pop("width", None)
 
-            self._denoise_node.update_components(controlnet=controlnet_components)
+        # 5. figure out the outputs to return based on node_config["output_names"]
+        outputs = {}
+        output_names = node_config["output_names"].copy()
+         # "doc" is a standard node output but not a pipeline output
+        if "doc" in output_names:
+            output_names.remove("doc")
+            outputs["doc"] = self._pipeline.blocks.doc
 
-        if ip_adapter is not None:
-            self._denoise_node.load_ip_adapter(
-                ip_adapter["model_id"], ip_adapter["subfolder"], ip_adapter["weight_name"]
-            )
-            self._denoise_node.set_ip_adapter_scale(ip_adapter["scale"])
+        # 6. run the pipeline and update the outputs dict with the pipeline outputs
+        node_outputs = self._pipeline(**node_kwargs, output=output_names)
+        outputs.update(node_outputs)
 
-            denoise_kwargs.update(ip_adapter_image=ip_adapter["image"])  # TODO: use embeddings instead
-
-            image_encoder_input = ip_adapter["image_encoder"]
-            image_encoder_component = components.get_one(image_encoder_input["model_id"])
-            self._denoise_node.update_components(image_encoder=image_encoder_component)
-
-        state = self._denoise_node(**denoise_kwargs, callback=preview_callback)
-        latents_dict = {
-            "latents": state.get("latents"),
-            "height": state.get("height"),
-            "width": state.get("width"),
-        }
-
-        return {"latents": latents_dict, "latents_preview": latents_dict["latents"], "doc": self._denoise_node.blocks.doc}
+        return outputs

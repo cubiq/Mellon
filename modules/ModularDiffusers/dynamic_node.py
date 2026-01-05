@@ -1,7 +1,7 @@
 import logging
 
 from diffusers import ModularPipeline
-from diffusers.modular_pipelines.mellon_node_utils import MellonNodeConfig
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 from mellon.NodeBase import NodeBase
 
@@ -11,22 +11,31 @@ from . import components
 logger = logging.getLogger("mellon")
 
 
-class DynamicCustom(NodeBase):
-    label = "Dynamic Custom"
+class DynamicBlockNode(NodeBase):
+    label = "Dynamic Block Node"
     resizable = True
+    style = {"minWidth": 300}
     skipParamsCheck = True
     node_type = "custom"
-    # YiYi Notes: in the future, we should support any repo_id without the option list
+
     params = {
         "repo_id": {
-            "label": "Repository ID",
+            "label": "Custom Block",
+            "display": "autocomplete",
             "type": "string",
+            "default": "",
+            "value": "",
             "options": {
                 "": "",
-                "YiYiXu/florence-2-block": "florence-2-block",
+                "OzzyGT/florence-2-block": "Florence-2 Block",
             },
-            "value": "",
-            "onChange": "updateNode",
+            "fieldOptions": {"noValidation": True},
+        },
+        "load_block_button": {
+            "label": "Load Custom Block",
+            "display": "ui_button",
+            "value": False,
+            "onChange": "update_node",
         },
         "doc": {
             "label": "Doc",
@@ -35,20 +44,19 @@ class DynamicCustom(NodeBase):
         },
     }
 
-    def updateNode(self, values, ref):
-        # default params: repo_id
+    def _get_custom_params(self, repo_id):
+        custom_mellon_config = MellonPipelineConfig.load(repo_id)
+        custom_params = custom_mellon_config["params"]
 
+        return custom_params
+
+    def update_node(self, values, ref):
         if not values.get("repo_id", ""):
+            self.send_node_definition({})
             return
 
-        custom_params = {}
-
         repo_id = values.get("repo_id", "")
-
-        custom_mellon_config = MellonNodeConfig.load_mellon_config(repo_id)
-
-        # required params for controlnet
-        custom_params.update(**custom_mellon_config["params"])
+        custom_params = self._get_custom_params(repo_id)
 
         self.send_node_definition(custom_params)
 

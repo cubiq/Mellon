@@ -1,80 +1,16 @@
 import importlib
 import logging
 
-from diffusers import ModularPipeline
-from diffusers.modular_pipelines import SequentialPipelineBlocks
-
 from mellon.NodeBase import NodeBase
 
 from . import components
-from .utils import combine_multi_inputs
+from .utils import combine_multi_inputs, collect_model_ids
+from .modular_utils import pipeline_class_to_mellon_node_config, DummyCustomPipeline
 
 
 logger = logging.getLogger("mellon")
 
 
-class Controlnet(NodeBase):
-    label = "ControlNet"
-    category = "adapters"
-    resizable = True
-
-    params = {
-        "control_image": {
-            "label": "Control Image",
-            "type": "image",
-            "display": "input",
-        },
-        "controlnet_conditioning_scale": {
-            "label": "Scale",
-            "type": "float",
-            "default": 0.5,
-            "min": 0,
-            "max": 1,
-        },
-        "control_guidance_start": {
-            "label": "Start",
-            "type": "float",
-            "default": 0.0,
-            "min": 0,
-            "max": 1,
-        },
-        "control_guidance_end": {
-            "label": "End",
-            "type": "float",
-            "default": 1.0,
-            "min": 0,
-            "max": 1,
-        },
-        "controlnet_model": {
-            "label": "Controlnet Model",
-            "type": "diffusers_auto_model",
-            "display": "input",
-        },
-        "controlnet": {
-            "label": "Controlnet",
-            "display": "output",
-            "type": "custom_controlnet",
-        },
-    }
-
-    def execute(
-        self,
-        control_image,
-        controlnet_conditioning_scale,
-        controlnet_model,
-        control_guidance_start,
-        control_guidance_end,
-    ):
-        controlnet = {
-            "controlnet_model": controlnet_model,
-            "controlnet_inputs": {
-                "control_image": control_image,
-                "controlnet_conditioning_scale": controlnet_conditioning_scale,
-                "control_guidance_start": control_guidance_start,
-                "control_guidance_end": control_guidance_end,
-            },
-        }
-        return {"controlnet": controlnet}
 
 
 class MultiControlNet(NodeBase):
@@ -228,32 +164,8 @@ class ControlnetUnion(NodeBase):
         return {"controlnet": controlnet}
 
 
-def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
-    print(f" inside pipeline_class_to_mellon_node_config: {pipeline_class}")
-
-    try:
-        from diffusers.modular_pipelines.mellon_node_utils import ModularMellonNodeRegistry
-
-        registry = ModularMellonNodeRegistry()
-        node_type_config = registry.get(pipeline_class)[node_type]
-    except Exception as e:
-        logger.debug(f" Failed to load the node from {pipeline_class}: {e}")
-        return None, None
-
-    node_type_blocks = None
-    pipeline = pipeline_class()
-
-    if pipeline is not None and node_type_config is not None and node_type_config.blocks_names:
-        blocks_dict = {
-            name: block for name, block in pipeline.blocks.sub_blocks.items() if name in node_type_config.blocks_names
-        }
-        node_type_blocks = SequentialPipelineBlocks.from_blocks_dict(blocks_dict)
-
-    return node_type_blocks, node_type_config
-
-
-class DynamicControlnet(NodeBase):
-    label = "Dynamic ControlNet"
+class Controlnet(NodeBase):
+    label = "ControlNet"
     category = "adapters"
     resizable = True
     skipParamsCheck = True
@@ -261,7 +173,7 @@ class DynamicControlnet(NodeBase):
 
     params = {
         "model_type": {"label": "Model Type", "type": "string", "default": "", "hidden": True},
-        "controlnet_out": {
+        "controlnet_bundle": {
             "label": "Controlnet",
             "display": "output",
             "type": "custom_controlnet",
@@ -273,9 +185,13 @@ class DynamicControlnet(NodeBase):
                         "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
                         "QwenImageModularPipeline": "QwenImageModularPipeline",
                         "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                        "FluxModularPipeline": "FluxModularPipeline",
+                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                        "DummyCustomPipeline": "DummyCustomPipeline",
                     },
                 },
-                {"action": "exec", "data": "updateNode"},
+                {"action": "exec", "data": "update_node"},
             ],
         },
     }
@@ -285,72 +201,137 @@ class DynamicControlnet(NodeBase):
         self._model_type = ""
         self._pipeline_class = None
 
-    def updateNode(self, values, ref):
-        # default params: repo_id
-        controlnet_params = {}
+    def update_node(self, values, ref):
+
+        node_params = {
+            "model_type": {
+                "label": "Model Type",
+                "type": "string",
+                "default": "",
+                "hidden": True,
+            },
+            "controlnet_bundle": {
+                "label": "Controlnet",
+                "display": "output",
+                "type": "custom_controlnet",
+                "onSignal": [
+                    {
+                        "action": "value",
+                        "target": "model_type",
+                        "data": {
+                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
+                            "QwenImageModularPipeline": "QwenImageModularPipeline",
+                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
+                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
+                            "FluxModularPipeline": "FluxModularPipeline",
+                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
+                            "DummyCustomPipeline": "DummyCustomPipeline",
+                        },
+                    },
+                    {"action": "exec", "data": "update_node"},
+                ],
+            },
+        }
+
         model_type = values.get("model_type", "")
 
-        # skip import since we don't have a model type and diffusers import takes some time
         if model_type == "" or self._model_type == model_type:
             return None
 
         self._model_type = model_type
+        if model_type == "DummyCustomPipeline":
+            self._pipeline_class = DummyCustomPipeline
+        else:   
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
+        
+        _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
-        diffusers_module = importlib.import_module("diffusers")
-        self._pipeline_class = getattr(diffusers_module, model_type)
-
-        _, controlnet_mellon_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
-        # not support this node type
-        if controlnet_mellon_config is None:
-            self.send_node_definition(controlnet_params)
+        # Not supported for this pipeline
+        if node_config is None:
+            self.send_node_definition(node_params)
             return
 
-        # required params for controlnet
-        controlnet_params.update(**controlnet_mellon_config.to_mellon_dict()["params"])
+        node_params_to_update = node_config["params"]
+        node_params_to_update.pop("controlnet_bundle", None)
 
-        self.send_node_definition(controlnet_params)
+        node_params.update(**node_params_to_update)
+        self.send_node_definition(node_params)
 
     def execute(self, **kwargs):
-        controlnet = kwargs.get("controlnet", None)
+        kwargs = dict(kwargs)
 
+        # 1. Get node config
+        blocks, node_config = pipeline_class_to_mellon_node_config(
+            self._pipeline_class, self.node_type
+        )
         denoise_blocks, _ = pipeline_class_to_mellon_node_config(self._pipeline_class, "denoise")
-        controlnet_blocks, _ = pipeline_class_to_mellon_node_config(self._pipeline_class, "controlnet")
-
         if denoise_blocks is None:
             return
 
-        if controlnet_blocks is not None:
-            # controlnet node
-            controlnet_node = controlnet_blocks.init_pipeline(None, components_manager=components)
+        # 2. Cast params to correct types (Mellon bug workaround)
+        # YiYi notes: should fix and remove in the future
+        for param_name, param_config in node_config["params"].items():
+            if param_name in kwargs and kwargs[param_name] is not None:
+                param_type = param_config.get("type", None)
+                if param_type == "float":
+                    kwargs[param_name] = float(kwargs[param_name])
+                elif param_type == "int":
+                    kwargs[param_name] = int(kwargs[param_name])
 
-            # update the components for the controlnet node
-            components_dict = {}
-            for comp_name in controlnet_node.pretrained_component_names:
-                if comp_name in kwargs:
-                    model_info_dict = kwargs.pop(comp_name)
-                    components_dict.update(components.get_components_by_ids([model_info_dict["model_id"]]))
+        node_output = None
+        if blocks is not None:
+            # 3. Create pipeline
+            self._pipeline = blocks.init_pipeline(components_manager=components)
 
-            controlnet_node.update_components(**components_dict)
 
-            inputs_dict = {}
-            for input_name in controlnet_node.blocks.input_names:
-                if input_name in kwargs and input_name not in inputs_dict:
-                    inputs_dict[input_name] = kwargs.pop(input_name)
+            # 4. Update components
+            expected_component_names = blocks.component_names
+            model_input_names = node_config["model_input_names"]
+            model_ids = collect_model_ids(
+                kwargs,
+                target_key_names=model_input_names,
+                target_model_names=expected_component_names,
+            )
 
-            controlnet_node_outputs = controlnet_node(**inputs_dict).values
+            if model_ids:
+                components_to_update = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
+                if components_to_update:
+                    self._pipeline.update_components(**components_to_update)
 
-        controlnet_out_inputs_dict = {}
+            # 5. Compile runtime inputs from kwargs based on node_config.inputs
+            node_kwargs = {}
+            input_names = node_config["input_names"]
+
+            for name in input_names:
+                if name not in kwargs:
+                    continue
+                value = kwargs.get(name)
+
+                if isinstance(value, dict) and name not in blocks.input_names:
+                    for k, v in value.items():
+                        if k in blocks.input_names:
+                            node_kwargs[k] = v
+                elif name in blocks.input_names:
+                    node_kwargs[name] = value
+
+            # 6. Run the pipeline
+            node_output = self._pipeline(**node_kwargs).values
+
+        # 7. Prepare controlnet output for Denoise node
+        # use the denoise blocks to know what inputs it expects
+
+        controlnet_inputs = {}
         for name in denoise_blocks.input_names:
-            if name in controlnet_node_outputs and controlnet_node_outputs[name] is not None:
-                controlnet_out_inputs_dict.update({name: controlnet_node_outputs[name]})
+            if node_output and name in node_output and node_output[name] is not None:
+                controlnet_inputs.update({name: node_output[name]})
             elif name in kwargs and kwargs[name] is not None:
-                controlnet_out_inputs_dict.update({name: kwargs.pop(name)})
+                controlnet_inputs.update({name: kwargs.pop(name)})
 
-        controlnet = {
-            "controlnet_model": controlnet,
-            "controlnet_inputs": controlnet_out_inputs_dict,
+        # YiYi TODO: list controlnet as required/static model input for controlnet node
+        controlnet_out = {
+            "controlnet": kwargs.get("controlnet"),
+            **controlnet_inputs,
         }
 
-        logger.debug(f" controlnet output: {controlnet}")
-
-        return {"controlnet_out": controlnet}
+        return {"controlnet_bundle": controlnet_out}

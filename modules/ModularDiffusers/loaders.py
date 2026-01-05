@@ -1,5 +1,5 @@
-import copy
 import logging
+from dataclasses import dataclass
 
 import torch
 from diffusers import ComponentSpec, ModularPipeline
@@ -9,6 +9,8 @@ from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
+from .modular_utils import get_all_model_types, get_model_type_metadata, MODULAR_REGISTRY, DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 
 logger = logging.getLogger("mellon")
@@ -117,11 +119,11 @@ class AutoModelLoader(NodeBase):
         filters = []
 
         if model_type == "denoise":
-            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel"]
+            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
         elif model_type == "controlnet":
-            filters = ["ControlNetModel", "QwenImageControlNetModel"]
+            filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
 
         default_values = {
             "": "",
@@ -181,14 +183,12 @@ class ModelsLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "StableDiffusionXLModularPipeline": "Stable Diffusion XL",
-                "QwenImageModularPipeline": "Qwen Image",
-                "QwenImageEditModularPipeline": "Qwen Image Edit",
             },
             "onChange": [
                 "set_filters",
                 {"action": "signal", "target": "unet_out"},
                 {"action": "signal", "target": "text_encoders"},
+                {"action": "signal", "target": "vae_out"},
             ],
         },
         "repo_id": {
@@ -224,6 +224,7 @@ class ModelsLoader(NodeBase):
     def __init__(self, node_id=None):
         super().__init__(node_id)
         self.loader = None
+        self.model_types_loaded = False
 
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
@@ -233,36 +234,41 @@ class ModelsLoader(NodeBase):
         super().__del__()
 
     def set_filters(self, values, ref):
+        # first time dynamically load the model_type options
+        if not self.model_types_loaded:
+            self.set_field_params("model_type", {"options": get_all_model_types()})
+            self.model_types_loaded = True
+
         model_type = values.get("model_type", "")
-
-        filters = []
-
-        if model_type == "StableDiffusionXLModularPipeline":
-            filters = ["StableDiffusionXLModularPipeline", "StableDiffusionXLPipeline"]
-        elif model_type == "QwenImageModularPipeline":
-            filters = ["QwenImageModularPipeline", "QwenImagePipeline"]
-        elif model_type == "QwenImageEditModularPipeline":
-            filters = ["QwenImageEditModularPipeline", "QwenImageEditPipeline"]
-
-        default_values = {
-            "": "",
-            "StableDiffusionXLModularPipeline": "stabilityai/stable-diffusion-xl-base-1.0",
-            "QwenImageModularPipeline": "Qwen/Qwen-Image",
-            "QwenImageEditModularPipeline": "Qwen/Qwen-Image-Edit",
-        }
+        metadata = get_model_type_metadata(model_type)
+        
+        if metadata:
+            default_repo = metadata["default_repo"]
+            default_dtype = metadata["default_dtype"]
+        else:
+            # Fallback for empty or unknown model types
+            default_repo = ""
+            default_dtype = "float16"
+        filters = [model_type] # YiYi Notes: 1:1 between model_type <-> modular pipeline class
 
         self.set_field_params(
-            "repo_id",
-            {
-                "default": {"source": "hub", "value": default_values[model_type]},
-                "value": {"source": "hub", "value": default_values[model_type]},
-                "fieldOptions": {
-                    "filter": {
-                        "hub": {"className": filters},
+                "repo_id",
+                {
+                    "default": {"source": "hub", "value": default_repo},
+                    "value": {"source": "hub", "value": default_repo},
+                    "fieldOptions": {
+                        "filter": {
+                            "hub": {"className": filters},
+                        },
                     },
                 },
-            },
-        )
+            )
+        self.set_field_params(
+                "dtype",
+                {
+                    "value": default_dtype,
+                },
+            )
 
     def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
@@ -298,6 +304,21 @@ class ModelsLoader(NodeBase):
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id
         )
+
+        if model_type == "DummyCustomPipeline":
+
+            # update node param
+            mellon_config = MellonPipelineConfig.load(real_repo_id)
+            mellon_config.label = "Custom"
+
+            # update repo_id for DummyCustomPipeline
+            DummyCustomPipeline.repo_id = real_repo_id
+            # register DummyCustomPipeline to MODULAR_REGISTRY
+            MODULAR_REGISTRY.register(DummyCustomPipeline, mellon_config)
+        
+        else:
+            DummyCustomPipeline.repo_id = None
+            MODULAR_REGISTRY.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
 
         ALL_COMPONENTS = self.loader.pretrained_component_names
 
