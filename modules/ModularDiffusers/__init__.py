@@ -1,6 +1,7 @@
 from diffusers import ComponentsManager
 
 
+MESSAGE_DURATION = 5000
 components = ComponentsManager()
 
 MODULE_PARSE = [

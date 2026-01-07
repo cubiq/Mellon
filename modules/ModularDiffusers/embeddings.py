@@ -1,16 +1,15 @@
+import importlib
 import logging
 
-from diffusers.modular_pipelines import ModularPipeline
-import importlib
-
 from mellon.NodeBase import NodeBase
-from .utils import collect_model_ids
-from .modular_utils import pipeline_class_to_mellon_node_config, DummyCustomPipeline
 
-from . import components
+from . import MESSAGE_DURATION, components
+from .modular_utils import DummyCustomPipeline, pipeline_class_to_mellon_node_config
+from .utils import collect_model_ids
 
 
 logger = logging.getLogger("mellon")
+
 
 class EncodePrompt(NodeBase):
     label = "Encode Prompt"
@@ -19,80 +18,28 @@ class EncodePrompt(NodeBase):
     skipParamsCheck = True
     node_type = "text_encoder"
     params = {
-        "model_type": {
-            "label": "Model Type", 
-            "type": "string", 
-            "default": "", 
-            "hidden": True  # Hidden field to receive signal data
-        },
         "text_encoders": {
             "label": "Text Encoders *",
             "type": "diffusers_auto_models",
             "display": "input",
-            "onSignal": [
-                {
-                    "action": "value",
-                    "target": "model_type",
-                    # "data": SIGNAL_DATA, # YiYi Notes: not working
-                    "data": {
-                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                        "QwenImageModularPipeline": "QwenImageModularPipeline",
-                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                        "FluxModularPipeline": "FluxModularPipeline",
-                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                        "DummyCustomPipeline": "DummyCustomPipeline",
-                    },
-                },
-                {"action": "exec", "data": "update_node"},
-            ]
+            "onSignal": "update_node",
         },
     }
 
     def update_node(self, values, ref):
+        node_params = {}
+        model_type = self.get_signal_value("text_encoders")
 
-        node_params  = {
-            "model_type": {
-                "label": "Model Type", 
-                "type": "string", 
-                "default": "", 
-                "hidden": True  # Hidden field to receive signal data
-            },
-            "text_encoders": {
-                "label": "Text Encoders *",
-                "display": "input",
-                "type": "diffusers_auto_models",
-                "onSignal": [
-                    {
-                        "action": "value",
-                        "target": "model_type",
-                        # "data": SIGNAL_DATA, # YiYi Notes: not working
-                        "data": {
-                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                            "QwenImageModularPipeline": "QwenImageModularPipeline",
-                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                            "FluxModularPipeline": "FluxModularPipeline",
-                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                            "DummyCustomPipeline": "DummyCustomPipeline",
-                        },
-                    },
-                    {"action": "exec", "data": "update_node"},
-                ]
-            },
-        }
-        model_type = values.get("model_type", "")
-
-        if model_type == "" or self._model_type == model_type:
+        if self._model_type == model_type:
             return None
 
-        self._model_type = model_type
-
-        if model_type == "DummyCustomPipeline": 
+        if model_type is None or model_type == "" or model_type == "DummyCustomPipeline":
             self._pipeline_class = DummyCustomPipeline
         else:
             diffusers_module = importlib.import_module("diffusers")
             self._pipeline_class = getattr(diffusers_module, model_type)
+
+        self._model_type = model_type
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
         # not support this node type
@@ -102,7 +49,7 @@ class EncodePrompt(NodeBase):
 
         node_params_to_update = node_config["params"]
         node_params_to_update.pop("text_encoders", None)
-        
+
         node_params.update(**node_params_to_update)
         # YiYi TODO: can we perserve the current user values in the UI for "string"/"float"/"int" params?
         self.send_node_definition(node_params)
@@ -113,18 +60,27 @@ class EncodePrompt(NodeBase):
         self._pipeline_class = None
 
     def execute(self, **kwargs):
-
         kwargs = dict(kwargs)
         # 1. Get node config
-        blocks, node_config = pipeline_class_to_mellon_node_config(
-            self._pipeline_class, self.node_type
-        )
+        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         # 2. create pipeline
-        repo_id = kwargs.get("text_encoders")["repo_id"]
+        repo_id = None
+        if (te := kwargs.get("text_encoders")) and "repo_id" in te:
+            repo_id = te["repo_id"]
+
+        if repo_id is None:
+            self.notify(
+                "You have to connect the text encoder(s)",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
-        # YiYi Notes: take an extra step to cast the params to the correct type. 
+        # YiYi Notes: take an extra step to cast the params to the correct type.
         # This due to Mellon bugs, should not need to take this step.
         for param_name, param_config in node_config["params"].items():
             if param_name in kwargs and kwargs[param_name] is not None:
@@ -138,11 +94,9 @@ class EncodePrompt(NodeBase):
         expected_component_names = blocks.component_names
         model_input_names = node_config["model_input_names"]
         model_ids = collect_model_ids(
-            kwargs, 
-            target_key_names=model_input_names, 
-            target_model_names=expected_component_names
+            kwargs, target_key_names=model_input_names, target_model_names=expected_component_names
         )
-        
+
         if model_ids:
             components_to_update = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
             if components_to_update:
@@ -168,7 +122,7 @@ class EncodePrompt(NodeBase):
                             f"Input '{name}:{k}' is not expected by {self.node_type} blocks.\n"
                             f"Expected inputs:\n  - {expected_inputs} \n"
                             f"Blocks: {blocks}"
-                            )
+                        )
             # pass the value as it is to the pipeline
             elif name in blocks.input_names:
                 node_kwargs[name] = value
@@ -178,12 +132,15 @@ class EncodePrompt(NodeBase):
                     f"Input '{name}' is not expected by {self.node_type} blocks.\n"
                     f"Expected inputs:\n  - {expected_inputs} \n"
                     f"Blocks: {blocks}"
-                    )
-
+                )
 
         # 5. run the pipeline,
-        node_output_state = self._pipeline(**node_kwargs)
-        
+        try:
+            node_output_state = self._pipeline(**node_kwargs)
+        except ValueError as e:
+            self.notify(str(e), variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
+            return None
+
         # 6. prepare the outputs dict based on node_config["output_names"]
         output_names = node_config["output_names"].copy()
         outputs = {}

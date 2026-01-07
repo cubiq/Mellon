@@ -1,7 +1,9 @@
-from typing import Dict, Any, Optional
-from diffusers.modular_pipelines.mellon_node_utils import MellonParam, MellonPipelineConfig
 import logging
+from typing import Any, Dict, Optional
+
 from diffusers import ModularPipeline
+from diffusers.modular_pipelines.mellon_node_utils import MellonParam, MellonPipelineConfig
+
 
 logger = logging.getLogger("mellon")
 
@@ -554,18 +556,107 @@ FLUX_KONTEXT_PIPELINE_CONFIG = MellonPipelineConfig(
     default_dtype="bfloat16",
 )
 
+# =============================================================================
+# Z-Image
+# =============================================================================
+
+Z_IMAGE_NODE_SPECS = {
+    "controlnet": None,  # Not yet supported in Modular
+    "denoise": {
+        "inputs": [
+            MellonParam.embeddings(display="input"),
+            MellonParam.width(),
+            MellonParam.height(),
+            MellonParam.seed(),
+            MellonParam.num_inference_steps(),
+            MellonParam.guidance_scale(),
+            MellonParam.image_latents_with_strength(),
+            MellonParam.strength(),
+        ],
+        "model_inputs": [
+            MellonParam.unet(),
+            MellonParam.guider(),
+            MellonParam.scheduler(),
+        ],
+        "outputs": [
+            MellonParam.latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["embeddings"],
+        "required_model_inputs": ["unet", "scheduler"],
+        "block_name": "denoise",
+    },
+    "vae_encoder": {
+        "inputs": [
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.image_latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["image"],
+        "required_model_inputs": ["vae"],
+        "block_name": "vae_encoder",
+    },
+    "text_encoder": {
+        "inputs": [
+            MellonParam.prompt(),
+            # No negative_prompt - pipeline does not support this
+        ],
+        "model_inputs": [
+            MellonParam.text_encoders(),
+        ],
+        "outputs": [
+            MellonParam.embeddings(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["prompt"],
+        "required_model_inputs": ["text_encoders"],
+        "block_name": "text_encoder",
+    },
+    "decoder": {
+        "inputs": [
+            MellonParam.latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.images(),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["latents"],
+        "required_model_inputs": ["vae"],
+        "block_name": "decode",
+    },
+}
+
+Z_IMAGE_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=Z_IMAGE_NODE_SPECS,
+    label="Z-Image",
+    default_repo="Tongyi-MAI/Z-Image-Turbo",
+    default_dtype="bfloat16",
+)
+
 
 class DummyCustomPipeline:
     """Placeholder class used as registry key for custom pipelines."""
+
     repo_id = None
 
     def __new__(cls):
         from diffusers import ModularPipeline
+
         return ModularPipeline.from_pretrained(cls.repo_id, trust_remote_code=True)
 
 
+DUMMY_CUSTOM_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs={}, label="Custom", default_repo="", default_dtype="bfloat16"
+)
 
-DUMMY_CUSTOM_PIPELINE_CONFIG = MellonPipelineConfig(node_specs = {}, label = "Custom", default_repo = "", default_dtype = "bfloat16")
 
 # Minimal modular registry for Mellon node configs
 class ModularMellonNodeRegistry:
@@ -594,45 +685,58 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
     """Initialize the registry and register all available pipeline configs."""
     logger.info("Initializing Mellon registry")
     registry._initialized = True
-    
+
     # register DummyCustomPipeline with empty node specs
     registry.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
 
     try:
         from diffusers import StableDiffusionXLModularPipeline
+
         registry.register(StableDiffusionXLModularPipeline, SDXL_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register StableDiffusionXLModularPipeline: {e}")
 
     try:
         from diffusers import QwenImageModularPipeline
+
         registry.register(QwenImageModularPipeline, QWEN_IMAGE_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register QwenImageModularPipeline: {e}")
 
     try:
         from diffusers import QwenImageEditModularPipeline
+
         registry.register(QwenImageEditModularPipeline, QWEN_IMAGE_EDIT_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register QwenImageEditModularPipeline: {e}")
 
     try:
         from diffusers import QwenImageEditPlusModularPipeline
+
         registry.register(QwenImageEditPlusModularPipeline, QWEN_IMAGE_EDIT_PLUS_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register QwenImageEditPlusModularPipeline: {e}")
 
     try:
         from diffusers import FluxModularPipeline
+
         registry.register(FluxModularPipeline, FLUX_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register FluxModularPipeline: {e}")
 
     try:
         from diffusers import FluxKontextModularPipeline
+
         registry.register(FluxKontextModularPipeline, FLUX_KONTEXT_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register FluxKontextModularPipeline: {e}")
+
+    try:
+        from diffusers import ZImageModularPipeline
+
+        registry.register(ZImageModularPipeline, Z_IMAGE_PIPELINE_CONFIG)
+    except Exception as e:
+        logger.warning(f"Failed to register ZImageModularPipeline: {e}")
 
 
 # Global singleton registry instance
@@ -641,10 +745,10 @@ MODULAR_REGISTRY = ModularMellonNodeRegistry()
 
 def get_all_model_types() -> Dict[str, str]:
     """Get all registered model types with their labels for UI dropdowns.
-    
+
     Returns:
         Dict mapping model type names (keys) to human-readable labels (values).
-        
+
     Example output:
         {
             "": "",
@@ -664,7 +768,7 @@ def get_all_model_types() -> Dict[str, str]:
 # YiYi notes: not used for now
 def get_model_type_signal_data() -> Dict[str, str]:
     """Get model type mapping for onSignal value actions.
-    
+
     Returns a dict mapping model type names to themselves, used in onSignal
     to pass model type through from upstream nodes.
     """
@@ -678,7 +782,7 @@ def get_model_type_signal_data() -> Dict[str, str]:
 
 def get_model_type_metadata(model_type: str) -> Optional[Dict[str, Any]]:
     """Get metadata for a model type.
-    
+
     Returns dict with model_type, label, default_repo, default_dtype, node_params.
     """
     registry = MODULAR_REGISTRY.get_all()
@@ -700,9 +804,9 @@ def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
     if config is None:
         logger.debug(f"Failed to load config for {pipeline_class}")
         return None, None
-    
+
     node_params = config.node_params.get(node_type)
-    
+
     node_type_blocks = None
     if node_params is not None and node_params.get("block_name"):
         pipeline = pipeline_class()

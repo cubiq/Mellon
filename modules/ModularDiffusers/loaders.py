@@ -1,16 +1,21 @@
 import logging
-from dataclasses import dataclass
 
 import torch
 from diffusers import ComponentSpec, ModularPipeline
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 from transformers import CLIPVisionModelWithProjection
 
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
-from . import components
-from .modular_utils import get_all_model_types, get_model_type_metadata, MODULAR_REGISTRY, DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG
-from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
+from . import MESSAGE_DURATION, components
+from .modular_utils import (
+    DUMMY_CUSTOM_PIPELINE_CONFIG,
+    MODULAR_REGISTRY,
+    DummyCustomPipeline,
+    get_all_model_types,
+    get_model_type_metadata,
+)
 
 
 logger = logging.getLogger("mellon")
@@ -159,7 +164,7 @@ class AutoModelLoader(NodeBase):
 
         if isinstance(model_id, dict):
             real_model_id = model_id.get("value", model_id)
-            source = model_id.get("source", "hub")  # TODO: do something when is local?
+            _source = model_id.get("source", "hub")  # TODO: do something when is local?
         else:
             real_model_id = ""
 
@@ -241,7 +246,7 @@ class ModelsLoader(NodeBase):
 
         model_type = values.get("model_type", "")
         metadata = get_model_type_metadata(model_type)
-        
+
         if metadata:
             default_repo = metadata["default_repo"]
             default_dtype = metadata["default_dtype"]
@@ -249,26 +254,26 @@ class ModelsLoader(NodeBase):
             # Fallback for empty or unknown model types
             default_repo = ""
             default_dtype = "float16"
-        filters = [model_type] # YiYi Notes: 1:1 between model_type <-> modular pipeline class
+        filters = [model_type]  # YiYi Notes: 1:1 between model_type <-> modular pipeline class
 
         self.set_field_params(
-                "repo_id",
-                {
-                    "default": {"source": "hub", "value": default_repo},
-                    "value": {"source": "hub", "value": default_repo},
-                    "fieldOptions": {
-                        "filter": {
-                            "hub": {"className": filters},
-                        },
+            "repo_id",
+            {
+                "default": {"source": "hub", "value": default_repo},
+                "value": {"source": "hub", "value": default_repo},
+                "fieldOptions": {
+                    "filter": {
+                        "hub": {"className": filters},
                     },
                 },
-            )
+            },
+        )
         self.set_field_params(
-                "dtype",
-                {
-                    "value": default_dtype,
-                },
-            )
+            "dtype",
+            {
+                "value": default_dtype,
+            },
+        )
 
     def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
@@ -294,9 +299,18 @@ class ModelsLoader(NodeBase):
 
         if isinstance(repo_id, dict):
             real_repo_id = repo_id.get("value", repo_id)
-            source = repo_id.get("source", "hub")  # TODO: do something when is local?
+            _source = repo_id.get("source", "hub")  # TODO: do something when is local?
         else:
             real_repo_id = ""
+
+        if real_repo_id == "":
+            self.notify(
+                "Please provide a valid Repository ID.",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
 
         if not components._auto_offload_enabled or components._auto_offload_device != device:
             components.enable_auto_cpu_offload(device=device)
@@ -306,7 +320,6 @@ class ModelsLoader(NodeBase):
         )
 
         if model_type == "DummyCustomPipeline":
-
             # update node param
             mellon_config = MellonPipelineConfig.load(real_repo_id)
             mellon_config.label = "Custom"
@@ -315,7 +328,7 @@ class ModelsLoader(NodeBase):
             DummyCustomPipeline.repo_id = real_repo_id
             # register DummyCustomPipeline to MODULAR_REGISTRY
             MODULAR_REGISTRY.register(DummyCustomPipeline, mellon_config)
-        
+
         else:
             DummyCustomPipeline.repo_id = None
             MODULAR_REGISTRY.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
