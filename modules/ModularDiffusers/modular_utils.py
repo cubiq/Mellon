@@ -1,7 +1,6 @@
 import logging
 from typing import Any, Dict, Optional
 
-from diffusers import ModularPipeline
 from diffusers.modular_pipelines.mellon_node_utils import MellonParam, MellonPipelineConfig
 
 
@@ -215,7 +214,7 @@ QWEN_IMAGE_NODE_SPECS = {
 QWEN_IMAGE_PIPELINE_CONFIG = MellonPipelineConfig(
     node_specs=QWEN_IMAGE_NODE_SPECS,
     label="Qwen Image",
-    default_repo="Qwen/Qwen-Image",
+    default_repo="Qwen/Qwen-Image-2512",
     default_dtype="bfloat16",
 )
 
@@ -383,7 +382,7 @@ QWEN_IMAGE_EDIT_PLUS_NODE_SPECS = {
 QWEN_IMAGE_EDIT_PLUS_PIPELINE_CONFIG = MellonPipelineConfig(
     node_specs=QWEN_IMAGE_EDIT_PLUS_NODE_SPECS,
     label="Qwen Image Edit Plus",
-    default_repo="Qwen/Qwen-Image-Edit-2509",
+    default_repo="Qwen/Qwen-Image-Edit-2511",
     default_dtype="bfloat16",
 )
 
@@ -561,7 +560,7 @@ FLUX_KONTEXT_PIPELINE_CONFIG = MellonPipelineConfig(
 # =============================================================================
 
 Z_IMAGE_NODE_SPECS = {
-    "controlnet": None,  # Not yet supported in Modular
+    "controlnet": None,
     "denoise": {
         "inputs": [
             MellonParam.embeddings(display="input"),
@@ -638,6 +637,75 @@ Z_IMAGE_PIPELINE_CONFIG = MellonPipelineConfig(
     node_specs=Z_IMAGE_NODE_SPECS,
     label="Z-Image",
     default_repo="Tongyi-MAI/Z-Image-Turbo",
+    default_dtype="bfloat16",
+)
+
+# =============================================================================
+# WAN
+# =============================================================================
+
+WAN_NODE_SPECS = {
+    "controlnet": None,
+    "denoise": {
+        "inputs": [
+            MellonParam.embeddings(display="input"),
+            MellonParam.width(),
+            MellonParam.height(),
+            MellonParam.seed(),
+            MellonParam.num_inference_steps(),
+            MellonParam.guidance_scale(),
+            MellonParam.num_frames(),
+        ],
+        "model_inputs": [
+            MellonParam.unet(),
+            MellonParam.scheduler(),
+        ],
+        "outputs": [
+            MellonParam.latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["embeddings"],
+        "required_model_inputs": ["unet", "scheduler"],
+        "block_name": "denoise",
+    },
+    "text_encoder": {
+        "inputs": [
+            MellonParam.prompt(),
+            # No negative_prompt - pipeline does not support this
+        ],
+        "model_inputs": [
+            MellonParam.text_encoders(),
+        ],
+        "outputs": [
+            MellonParam.embeddings(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["prompt"],
+        "required_model_inputs": ["text_encoders"],
+        "block_name": "text_encoder",
+    },
+    "decoder": {
+        "inputs": [
+            MellonParam.latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.videos(),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["latents"],
+        "required_model_inputs": ["vae"],
+        "block_name": "decode",
+    },
+}
+
+WAN_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=WAN_NODE_SPECS,
+    label="WAN",
+    # default_repo="Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+    default_repo="Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
     default_dtype="bfloat16",
 )
 
@@ -737,6 +805,13 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
         registry.register(ZImageModularPipeline, Z_IMAGE_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register ZImageModularPipeline: {e}")
+
+    try:
+        from diffusers import WanModularPipeline
+
+        registry.register(WanModularPipeline, WAN_PIPELINE_CONFIG)
+    except Exception as e:
+        logger.warning(f"Failed to register WanModularPipeline: {e}")
 
 
 # Global singleton registry instance
