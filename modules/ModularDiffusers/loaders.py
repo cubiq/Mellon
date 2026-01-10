@@ -3,7 +3,6 @@ import logging
 import torch
 from diffusers import ComponentSpec, ModularPipeline
 from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
-from transformers import CLIPVisionModelWithProjection
 
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
@@ -84,8 +83,12 @@ class AutoModelLoader(NodeBase):
                 "denoise": "Denoise Model",
                 "vae": "VAE",
                 "controlnet": "ControlNet",
+                "image_encoder": "Image Encoder",
             },
-            "onChange": "set_filters",
+            "onChange": [
+                "set_filters",
+                {"action": "signal", "target": "model"},
+            ],
         },
         "model_id": {
             "label": "Model ID",
@@ -125,16 +128,23 @@ class AutoModelLoader(NodeBase):
 
         if model_type == "denoise":
             filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
+            self.set_field_params("subfolder", {"value": "unet"})
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
+            self.set_field_params("subfolder", {"value": "vae"})
         elif model_type == "controlnet":
             filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
+            self.set_field_params("subfolder", {"value": ""})
+        elif model_type == "image_encoder":
+            filters = ["ClipVisionModel"]
+            self.set_field_params("subfolder", {"value": "image_encoder"})
 
         default_values = {
             "": "",
             "denoise": "stabilityai/stable-diffusion-xl-base-1.0",
             "vae": "stabilityai/stable-diffusion-xl-base-1.0",
             "controlnet": "diffusers/controlnet-depth-sdxl-1.0",
+            "image_encoder": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
         }
 
         self.set_field_params(
@@ -158,15 +168,24 @@ class AutoModelLoader(NodeBase):
         logger.debug(f"  variant: '{variant}'")
         logger.debug(f"  dtype: '{dtype}'")
 
-        # Normalize parameters
-        variant = None if variant == "" else variant
-        subfolder = None if subfolder == "" else subfolder
-
         if isinstance(model_id, dict):
             real_model_id = model_id.get("value", model_id)
             _source = model_id.get("source", "hub")  # TODO: do something when is local?
         else:
             real_model_id = ""
+
+        if real_model_id == "":
+            self.notify(
+                "Please provide a valid Repository ID.",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
+        # Normalize parameters
+        variant = None if variant == "" else variant
+        subfolder = None if subfolder == "" else subfolder
 
         spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
         model = spec.load(torch_dtype=dtype)
@@ -174,7 +193,10 @@ class AutoModelLoader(NodeBase):
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
         logger.debug(f" AutoModelLoader: component manager: {components}")
 
-        return {"model": components.get_model_info(comp_id)}
+        model = components.get_model_info(comp_id)
+        model["repo_id"] = real_model_id
+
+        return {"model": model}
 
 
 class ModelsLoader(NodeBase):
@@ -262,18 +284,11 @@ class ModelsLoader(NodeBase):
                 "default": {"source": "hub", "value": default_repo},
                 "value": {"source": "hub", "value": default_repo},
                 "fieldOptions": {
-                    "filter": {
-                        "hub": {"className": filters},
-                    },
+                    "filter": {"hub": {"className": filters}},
                 },
             },
         )
-        self.set_field_params(
-            "dtype",
-            {
-                "value": default_dtype,
-            },
-        )
+        self.set_field_params("dtype", {"value": default_dtype})
 
     def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
         logger.debug(f"""
@@ -389,43 +404,3 @@ class ModelsLoader(NodeBase):
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
 
         return loaded_components
-
-
-# YiYi Notes: rename this to IPAdapter Image Encoder?
-class ImageEncoder(NodeBase):
-    label = "Image Encoder"
-    category = "adapters"
-    resizable = True
-
-    params = {
-        "model_path": {
-            "label": "Model ID",
-            "display": "modelselect",
-            "type": "string",
-            "default": {"source": "hub", "value": "h94/IP-Adapter"},
-            "fieldOptions": {
-                "noValidation": True,
-                "sources": ["hub", "local"],
-            },
-        },
-        "subfolder": {"label": "Subfolder", "type": "string", "default": "models/image_encoder"},
-        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
-    }
-
-    def execute(self, model_path, subfolder=None):
-        subfolder = None if subfolder == "" else subfolder
-
-        model_name = "image_encoder"
-
-        if isinstance(model_path, dict):
-            model_id = model_path.get("value", None)
-        else:
-            model_id = None
-
-        image_encoder_spec = ComponentSpec(
-            name=model_name, type_hint=CLIPVisionModelWithProjection, repo=model_id, subfolder=subfolder
-        )
-        image_encoder = image_encoder_spec.load(torch_dtype=torch.float16)
-        image_encoder_id = components.add(model_name, image_encoder, collection=self.node_id)
-
-        return {"image_encoder": components.get_model_info(image_encoder_id)}

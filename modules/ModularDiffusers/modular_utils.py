@@ -655,6 +655,8 @@ WAN_NODE_SPECS = {
             MellonParam.num_inference_steps(),
             MellonParam.guidance_scale(),
             MellonParam.num_frames(),
+            MellonParam.first_frame_latents(display="input"),
+            MellonParam.image_embeds(display="input"),
         ],
         "model_inputs": [
             MellonParam.unet(),
@@ -668,10 +670,40 @@ WAN_NODE_SPECS = {
         "required_model_inputs": ["unet", "scheduler"],
         "block_name": "denoise",
     },
+    "vae_encoder": {
+        "inputs": [
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.first_frame_latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["image"],
+        "required_model_inputs": ["vae"],
+        "block_name": "vae_encoder",
+    },
+    "image_encoder": {
+        "inputs": [
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.image_encoder(),
+        ],
+        "outputs": [
+            MellonParam.image_embeds(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["image"],
+        "required_model_inputs": ["image_encoder"],
+        "block_name": "image_encoder",
+    },
     "text_encoder": {
         "inputs": [
             MellonParam.prompt(),
-            # No negative_prompt - pipeline does not support this
+            MellonParam.negative_prompt(),
         ],
         "model_inputs": [
             MellonParam.text_encoders(),
