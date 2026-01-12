@@ -7,10 +7,9 @@ from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
-from . import MESSAGE_DURATION, components
+from . import MESSAGE_DURATION, MODULAR_REGISTRY, components
 from .modular_utils import (
     DUMMY_CUSTOM_PIPELINE_CONFIG,
-    MODULAR_REGISTRY,
     DummyCustomPipeline,
     get_all_model_types,
     get_model_type_metadata,
