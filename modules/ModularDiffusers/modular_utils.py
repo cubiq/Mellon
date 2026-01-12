@@ -846,8 +846,13 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
         logger.warning(f"Failed to register WanModularPipeline: {e}")
 
 
-# Global singleton registry instance
-MODULAR_REGISTRY = ModularMellonNodeRegistry()
+def _get_registry_instance():
+    """Lazily import MODULAR_REGISTRY to avoid circular imports"""
+    try:
+        from . import MODULAR_REGISTRY
+    except Exception as e:
+        raise RuntimeError("MODULAR_REGISTRY not initialized.") from e
+    return MODULAR_REGISTRY
 
 
 def get_all_model_types() -> Dict[str, str]:
@@ -864,7 +869,7 @@ def get_all_model_types() -> Dict[str, str]:
             "FluxModularPipeline": "Flux",
         }
     """
-    registry = MODULAR_REGISTRY.get_all()
+    registry = _get_registry_instance().get_all()
     all_labels = {"": ""}
     for pipeline_cls, config in registry.items():
         model_type = pipeline_cls.__name__
@@ -879,7 +884,7 @@ def get_model_type_signal_data() -> Dict[str, str]:
     Returns a dict mapping model type names to themselves, used in onSignal
     to pass model type through from upstream nodes.
     """
-    registry = MODULAR_REGISTRY.get_all()
+    registry = _get_registry_instance().get_all()
     model_types = {"": ""}
     for pipeline_cls, _ in registry.items():
         model_type = pipeline_cls.__name__
@@ -892,7 +897,7 @@ def get_model_type_metadata(model_type: str) -> Optional[Dict[str, Any]]:
 
     Returns dict with model_type, label, default_repo, default_dtype, node_params.
     """
-    registry = MODULAR_REGISTRY.get_all()
+    registry = _get_registry_instance().get_all()
     for pipeline_cls, config in registry.items():
         if pipeline_cls.__name__ == model_type:
             return {
@@ -907,7 +912,7 @@ def get_model_type_metadata(model_type: str) -> Optional[Dict[str, Any]]:
 
 def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
     """Get the block and mellon node params for a pipeline class and node type."""
-    config = MODULAR_REGISTRY.get(pipeline_class)
+    config = _get_registry_instance().get(pipeline_class)
     if config is None:
         logger.debug(f"Failed to load config for {pipeline_class}")
         return None, None
