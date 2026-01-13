@@ -386,6 +386,89 @@ QWEN_IMAGE_EDIT_PLUS_PIPELINE_CONFIG = MellonPipelineConfig(
     default_dtype="bfloat16",
 )
 
+# =============================================================================
+# Qwen Image Layyered
+# =============================================================================
+
+QWEN_IMAGE_LAYERED_NODE_SPECS = {
+    "controlnet": None,
+    "denoise": {
+        "inputs": [
+            MellonParam.embeddings(display="input"),
+            MellonParam.seed(),
+            MellonParam.num_inference_steps(),
+            MellonParam.guidance_scale(),
+            MellonParam.layers(),
+            MellonParam.image_latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.unet(),
+            MellonParam.guider(),
+            MellonParam.scheduler(),
+        ],
+        "outputs": [
+            MellonParam.latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["embeddings", "image_latents"],
+        "required_model_inputs": ["unet", "scheduler"],
+        "block_name": "denoise",
+    },
+    "vae_encoder": {
+        "inputs": [
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.image_latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["image"],
+        "required_model_inputs": ["vae"],
+        "block_name": "vae_encoder",
+    },
+    "text_encoder": {
+        "inputs": [
+            MellonParam.prompt(),
+            MellonParam.negative_prompt(),
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.text_encoders(),
+        ],
+        "outputs": [
+            MellonParam.embeddings(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["prompt", "image"],
+        "required_model_inputs": ["text_encoders"],
+        "block_name": "text_encoder",
+    },
+    "decoder": {
+        "inputs": [
+            MellonParam.latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.images(),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["latents"],
+        "required_model_inputs": ["vae"],
+        "block_name": "decode",
+    },
+}
+
+QWEN_IMAGE_LAYERED_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=QWEN_IMAGE_LAYERED_NODE_SPECS,
+    label="Qwen Image Layered",
+    default_repo="Qwen/Qwen-Image-Layered",
+    default_dtype="bfloat16",
+)
 
 # =============================================================================
 # Flux
@@ -816,6 +899,13 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
         registry.register(QwenImageEditPlusModularPipeline, QWEN_IMAGE_EDIT_PLUS_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register QwenImageEditPlusModularPipeline: {e}")
+
+    try:
+        from diffusers import QwenImageLayeredModularPipeline
+
+        registry.register(QwenImageLayeredModularPipeline, QWEN_IMAGE_LAYERED_PIPELINE_CONFIG)
+    except Exception as e:
+        logger.warning(f"Failed to register QwenImageLayeredModularPipeline: {e}")
 
     try:
         from diffusers import FluxModularPipeline
