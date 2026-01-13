@@ -82,7 +82,6 @@ class AutoModelLoader(NodeBase):
                 "denoise": "Denoise Model",
                 "vae": "VAE",
                 "controlnet": "ControlNet",
-                "image_encoder": "Image Encoder",
             },
             "onChange": [
                 "set_filters",
@@ -134,16 +133,12 @@ class AutoModelLoader(NodeBase):
         elif model_type == "controlnet":
             filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
             self.set_field_params("subfolder", {"value": ""})
-        elif model_type == "image_encoder":
-            filters = ["ClipVisionModel"]
-            self.set_field_params("subfolder", {"value": "image_encoder"})
 
         default_values = {
             "": "",
             "denoise": "stabilityai/stable-diffusion-xl-base-1.0",
             "vae": "stabilityai/stable-diffusion-xl-base-1.0",
             "controlnet": "diffusers/controlnet-depth-sdxl-1.0",
-            "image_encoder": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
         }
 
         self.set_field_params(
@@ -215,6 +210,7 @@ class ModelsLoader(NodeBase):
                 {"action": "signal", "target": "unet_out"},
                 {"action": "signal", "target": "text_encoders"},
                 {"action": "signal", "target": "vae_out"},
+                {"action": "signal", "target": "image_encoder"},
             ],
         },
         "repo_id": {
@@ -245,6 +241,7 @@ class ModelsLoader(NodeBase):
         "unet_out": {"label": "Denoise Model", "display": "output", "type": "diffusers_auto_model"},
         "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
         "scheduler": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
+        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
     }
 
     def __init__(self, node_id=None):
@@ -395,6 +392,14 @@ class ModelsLoader(NodeBase):
             },
             "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
         }
+
+        # special case for image encoder
+        # TODO: ideally we should detect when is a model that requires it and
+        # enable the output, another alternative is to add a WAN I2V model_type
+        if "image_encoder" in ALL_COMPONENTS:
+            loaded_components["image_encoder"] = node_get_component_info(
+                node_id=self.node_id, manager=components, name="image_encoder"
+            )
 
         # add repo_id to all models info dicts
         for k, v in loaded_components.items():

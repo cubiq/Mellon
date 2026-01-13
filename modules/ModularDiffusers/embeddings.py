@@ -183,11 +183,11 @@ class ImageEmbeddings(NodeBase):
         if self._model_type == model_type:
             return None
 
-        if model_type == "image_encoder":
-            diffusers_module = importlib.import_module("diffusers")
-            self._pipeline_class = getattr(diffusers_module, "WanModularPipeline")  # TODO: test only for PoC
-        else:
+        if model_type is None or model_type == "" or model_type == "DummyCustomPipeline":
             self._pipeline_class = DummyCustomPipeline
+        else:
+            diffusers_module = importlib.import_module("diffusers")
+            self._pipeline_class = getattr(diffusers_module, model_type)
 
         self._model_type = model_type
 
