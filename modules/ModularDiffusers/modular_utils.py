@@ -639,6 +639,89 @@ FLUX_KONTEXT_PIPELINE_CONFIG = MellonPipelineConfig(
 )
 
 # =============================================================================
+# Flux 2 Klein
+# =============================================================================
+
+FLUX_2_KLEIN_NODE_SPECS = {
+    "controlnet": None,
+    "denoise": {
+        "inputs": [
+            MellonParam.embeddings(display="input"),
+            MellonParam.seed(),
+            MellonParam.num_inference_steps(),
+            MellonParam.guidance_scale(),
+            MellonParam.image_latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.unet(),
+            MellonParam.guider(),
+            MellonParam.scheduler(),
+        ],
+        "outputs": [
+            MellonParam.latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["embeddings"],
+        "required_model_inputs": ["unet", "scheduler"],
+        "block_name": "denoise",
+    },
+    "vae_encoder": {
+        "inputs": [
+            MellonParam.image(),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.image_latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["image"],
+        "required_model_inputs": ["vae"],
+        "block_name": "vae_encoder",
+    },
+    "text_encoder": {
+        "inputs": [
+            MellonParam.prompt(),
+            MellonParam.negative_prompt(),
+        ],
+        "model_inputs": [
+            MellonParam.text_encoders(),
+        ],
+        "outputs": [
+            MellonParam.embeddings(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["prompt"],
+        "required_model_inputs": ["text_encoders"],
+        "block_name": "text_encoder",
+    },
+    "decoder": {
+        "inputs": [
+            MellonParam.latents(display="input"),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.images(),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["latents"],
+        "required_model_inputs": ["vae"],
+        "block_name": "decode",
+    },
+}
+
+FLUX_2_KLEIN_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=FLUX_2_KLEIN_NODE_SPECS,
+    label="Flux 2 Klein",
+    default_repo="black-forest-labs/FLUX.2-klein-4B",
+    default_dtype="bfloat16",
+)
+
+
+# =============================================================================
 # Z-Image
 # =============================================================================
 
@@ -920,6 +1003,13 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
         registry.register(FluxKontextModularPipeline, FLUX_KONTEXT_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register FluxKontextModularPipeline: {e}")
+
+    try:
+        from diffusers import Flux2KleinModularPipeline
+
+        registry.register(Flux2KleinModularPipeline, FLUX_2_KLEIN_PIPELINE_CONFIG)
+    except Exception as e:
+        logger.warning(f"Failed to register Flux2KleinModularPipeline: {e}")
 
     try:
         from diffusers import ZImageModularPipeline
