@@ -950,7 +950,6 @@ class ModularMellonNodeRegistry:
 def _initialize_registry(registry: ModularMellonNodeRegistry):
     """Initialize the registry and register all available pipeline configs."""
     logger.info("Initializing Mellon registry")
-    registry._initialized = True
 
     # register DummyCustomPipeline with empty node specs
     registry.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
@@ -1024,6 +1023,8 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
         registry.register(WanModularPipeline, WAN_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register WanModularPipeline: {e}")
+
+    registry._initialized = True
 
 
 def _get_registry_instance():
