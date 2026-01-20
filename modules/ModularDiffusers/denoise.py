@@ -218,10 +218,18 @@ class Denoise(NodeBase):
             self.notify(str(e), variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
             return None
         except AttributeError as e:
-            # this error is because the scheduler is not passed but ideally should not happen here and should be caught earlier with the ValueError
-            self.notify(
-                "You have to connect the scheduler", variant="error", persist=False, autoHideDuration=MESSAGE_DURATION
-            )
+            # the config error should be the missing scheduler
+            if "config" in str(e):
+                self.notify(
+                    "You have to connect the scheduler",
+                    variant="error",
+                    persist=False,
+                    autoHideDuration=MESSAGE_DURATION,
+                )
+                return None
+
+            # any other error just show the original message
+            self.notify(str(e), variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
             return None
 
         outputs.update(node_outputs)
