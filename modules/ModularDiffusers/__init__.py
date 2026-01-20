@@ -20,6 +20,7 @@ MODULE_PARSE = [
     "loaders",
     "schedulers",
     "dynamic_node",
+    "outputs",
 ]
 
 SDXL_BLOCKS = [

@@ -7,4 +7,5 @@ from .embeddings import *
 from .guiders import *
 from .latents import *
 from .loaders import *
+from .outputs import *
 from .schedulers import *
