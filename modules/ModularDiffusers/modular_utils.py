@@ -687,7 +687,6 @@ FLUX_2_KLEIN_DISTILLED_NODE_SPECS = {
     "text_encoder": {
         "inputs": [
             MellonParam.prompt(),
-            MellonParam.negative_prompt(),
         ],
         "model_inputs": [
             MellonParam.text_encoders(),

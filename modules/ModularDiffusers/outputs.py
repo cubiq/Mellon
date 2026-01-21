@@ -49,8 +49,25 @@ class MultiImagePreview(NodeBase):
             "type": "url",
             "dataSource": "image_list",
         },
-        "count": {
-            "label": "Image Count",
+        "size_index": {
+            "label": "Size Index",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "description": "Zero-based index of the image to get width/height from",
+        },
+        "image": {
+            "label": "Image",
+            "display": "output",
+            "type": "image",
+        },
+        "width": {
+            "label": "Width",
+            "display": "output",
+            "type": "int",
+        },
+        "height": {
+            "label": "Height",
             "display": "output",
             "type": "int",
         },
@@ -58,16 +75,27 @@ class MultiImagePreview(NodeBase):
 
     def execute(self, **kwargs):
         images = kwargs.get("images")
+        size_index = kwargs.get("size_index", 0)
 
         if images is None:
-            return {"image_list": None, "count": 0}
+            return {"image_list": None, "image": None, "width": None, "height": None}
 
         image_list = flatten_images(images)
 
         if not image_list:
-            return {"image_list": None, "count": 0}
+            return {"image_list": None, "image": None, "width": None, "height": None}
 
-        return {"image_list": image_list, "count": len(image_list)}
+        # clamp size_index to valid range
+        if size_index < 0:
+            size_index = 0
+        if size_index >= len(image_list):
+            size_index = len(image_list) - 1
+
+        selected_image = image_list[size_index]
+        width = selected_image.width
+        height = selected_image.height
+
+        return {"image_list": image_list, "image": selected_image, "width": width, "height": height}
 
 
 class ExtractImage(NodeBase):
@@ -181,16 +209,33 @@ class LoadImage(NodeBase):
             "options": ["Keep Original", "RGB (3 channels)", "RGBA (4 channels)"],
             "description": "Convert output image(s) to specified channel mode",
         },
-        "width": {"display": "output", "type": "int"},
-        "height": {"display": "output", "type": "int"},
+        "size_index": {
+            "label": "Size Index",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "description": "Zero-based index of the image to get width/height from",
+        },
+        "scale_factor": {
+            "label": "Scale Factor",
+            "type": "string",
+            "default": "1x",
+            "options": ["0.2x", "0.4x", "0.5x", "0.6x", "0.8x", "1x", "2x", "3x", "4x", "6x", "8x", "10x"],
+            "description": "Scale factor for width/height output (maintains aspect ratio)",
+        },
+        "width": {"label": "Width", "display": "output", "type": "int"},
+        "height": {"label": "Height", "display": "output", "type": "int"},
     }
 
     def execute(self, **kwargs):
         file = kwargs.get("file")
         channels = kwargs.get("channels", "Keep Original")
+        size_index = kwargs.get("size_index", 0)
+        scale_factor_str = kwargs.get("scale_factor", "1x")
         images = []
-        widths = []
-        heights = []
+
+        # parse scale factor
+        scale_factor = float(scale_factor_str.replace("x", ""))
 
         file = file if isinstance(file, list) else [file]
         for f in file:
@@ -206,8 +251,6 @@ class LoadImage(NodeBase):
                 # convert to specified channel mode
                 image = convert_channels(image, channels)
                 images.append(image)
-                widths.append(image.width)
-                heights.append(image.height)
             except Exception as e:
                 self.notify(
                     f"Error loading image {f}: {e}",
@@ -220,9 +263,17 @@ class LoadImage(NodeBase):
         if len(images) == 0:
             return {"image": None, "width": None, "height": None}
 
+        # clamp size_index to valid range
+        if size_index < 0:
+            size_index = 0
+        if size_index >= len(images):
+            size_index = len(images) - 1
+
+        selected_image = images[size_index]
+        width = int(selected_image.width * scale_factor)
+        height = int(selected_image.height * scale_factor)
+
         if len(images) == 1:
             images = images[0]
-            widths = widths[0]
-            heights = heights[0]
 
-        return {"image": images, "width": widths, "height": heights}
+        return {"image": images, "width": width, "height": height}

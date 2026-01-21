@@ -199,7 +199,11 @@ class Denoise(NodeBase):
                 node_kwargs[name] = value
 
         # YiYi Notes: workaround on mellon bug, height/width was hidden but values are still passed in.
-        if "image_latents" in node_kwargs and node_kwargs["image_latents"] is not None:
+        if (
+            "image_latents" in node_kwargs
+            and node_kwargs["image_latents"] is not None
+            and self._model_type != "Flux2KleinModularPipeline"
+        ):
             node_kwargs.pop("height", None)
             node_kwargs.pop("width", None)
 
