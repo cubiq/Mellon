@@ -1,6 +1,8 @@
 import logging
+import threading
 from typing import Any, Dict, Optional
 
+from diffusers import Flux2KleinModularPipeline
 from diffusers.modular_pipelines.mellon_node_utils import MellonParam, MellonPipelineConfig
 
 
@@ -642,14 +644,16 @@ FLUX_KONTEXT_PIPELINE_CONFIG = MellonPipelineConfig(
 # Flux 2 Klein
 # =============================================================================
 
-FLUX_2_KLEIN_NODE_SPECS = {
+FLUX_2_KLEIN_DISTILLED_NODE_SPECS = {
     "controlnet": None,
     "denoise": {
         "inputs": [
             MellonParam.embeddings(display="input"),
+            MellonParam.width(),
+            MellonParam.height(),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(4),
+            MellonParam.guidance_scale(1.0),
             MellonParam.image_latents(display="input"),
         ],
         "model_inputs": [
@@ -713,9 +717,9 @@ FLUX_2_KLEIN_NODE_SPECS = {
     },
 }
 
-FLUX_2_KLEIN_PIPELINE_CONFIG = MellonPipelineConfig(
-    node_specs=FLUX_2_KLEIN_NODE_SPECS,
-    label="Flux 2 Klein",
+FLUX_2_KLEIN_DISTILLED_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=FLUX_2_KLEIN_DISTILLED_NODE_SPECS,
+    label="Flux 2 Klein Distilled",
     default_repo="black-forest-labs/FLUX.2-klein-4B",
     default_dtype="bfloat16",
 )
@@ -931,19 +935,25 @@ class ModularMellonNodeRegistry:
     def __init__(self):
         self._registry: Dict[type, MellonPipelineConfig] = {}
         self._initialized = False
+        # Lock to prevent concurrent initialization races
+        self._init_lock = threading.Lock()
 
     def register(self, pipeline_cls: type, config: MellonPipelineConfig):
         """Register a pipeline class with its config."""
         self._registry[pipeline_cls] = config
 
     def get(self, pipeline_cls: type) -> Optional[MellonPipelineConfig]:
-        if not self._initialized:
-            _initialize_registry(self)
+        # Ensure only one thread/coroutine initializes the registry
+        with self._init_lock:
+            if not self._initialized:
+                _initialize_registry(self)
         return self._registry.get(pipeline_cls, None)
 
     def get_all(self) -> Dict[type, MellonPipelineConfig]:
-        if not self._initialized:
-            _initialize_registry(self)
+        # Ensure only one thread/coroutine initializes the registry
+        with self._init_lock:
+            if not self._initialized:
+                _initialize_registry(self)
         return self._registry
 
 
@@ -1006,7 +1016,7 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
     try:
         from diffusers import Flux2KleinModularPipeline
 
-        registry.register(Flux2KleinModularPipeline, FLUX_2_KLEIN_PIPELINE_CONFIG)
+        registry.register(Flux2KleinModularPipeline, FLUX_2_KLEIN_DISTILLED_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register Flux2KleinModularPipeline: {e}")
 
@@ -1102,7 +1112,12 @@ def pipeline_class_to_mellon_node_config(pipeline_class, node_type=None):
 
     node_type_blocks = None
     if node_params is not None and node_params.get("block_name"):
-        pipeline = pipeline_class()
+        # patch to use only distilled klein blocks
+        if pipeline_class == Flux2KleinModularPipeline:
+            pipeline = pipeline_class(config_dict={"is_distilled": True})
+        else:
+            pipeline = pipeline_class()
+
         node_type_blocks = pipeline.blocks.sub_blocks[node_params["block_name"]]
 
     return node_type_blocks, node_params
