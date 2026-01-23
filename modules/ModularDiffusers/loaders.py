@@ -234,6 +234,8 @@ class ModelsLoader(NodeBase):
             "postProcess": str_to_dtype,
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "trust_remote_code": {"label": "Trust Remote Code", "type": "boolean", "value": False},
+        "auto_offload": {"label": "Enable Auto Offload", "type": "boolean", "value": True},
         "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
         "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
@@ -286,7 +288,18 @@ class ModelsLoader(NodeBase):
         )
         self.set_field_params("dtype", {"value": default_dtype})
 
-    def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
+    def execute(
+        self,
+        model_type,
+        repo_id,
+        device,
+        dtype,
+        unet=None,
+        vae=None,
+        lora_list=None,
+        trust_remote_code=False,
+        auto_offload=True,
+    ):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
             - repo_id: {repo_id}
@@ -323,11 +336,11 @@ class ModelsLoader(NodeBase):
             )
             return None
 
-        if not components._auto_offload_enabled or components._auto_offload_device != device:
+        if auto_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
             components.enable_auto_cpu_offload(device=device)
 
         self.loader = ModularPipeline.from_pretrained(
-            real_repo_id, components_manager=components, collection=self.node_id
+            real_repo_id, components_manager=components, collection=self.node_id, trust_remote_code=trust_remote_code
         )
 
         if model_type == "DummyCustomPipeline":
@@ -370,40 +383,52 @@ class ModelsLoader(NodeBase):
                 if not same_comp_in_collection:
                     components_to_reload.append(comp_name)
 
-        self.loader.load_components(names=components_to_reload, torch_dtype=dtype)
+        self.loader.load_components(names=components_to_reload, torch_dtype=dtype, trust_remote_code=trust_remote_code)
         self.loader.update_components(**components_to_update)
+
+        if not auto_offload:
+            self.loader.to(device)
 
         print(f" ModelsLoader: reloaded components: {components_to_reload}")
         print(f" ModelsLoader: updated components: {components_to_update.keys()}")
 
-        if not lora_list:
+        if hasattr(self.loader, "unload_lora_weights"):
             self.loader.unload_lora_weights()
-        else:
-            self.loader.unload_lora_weights()
+        if lora_list:
             update_lora_adapters(self.loader, lora_list)
 
         # Construct loaded_components at the end after all modifications
-        loaded_components = {
-            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
-            "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
-            "text_encoders": {
-                k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
-                for k in text_encoder_names
-            },
-            "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
-        }
+        try:
+            loaded_components = {
+                "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
+                "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
+                "text_encoders": {
+                    k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
+                    for k in text_encoder_names
+                },
+                "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
+            }
 
-        # special case for image encoder
-        # TODO: ideally we should detect when is a model that requires it and
-        # enable the output, another alternative is to add a WAN I2V model_type
-        if "image_encoder" in ALL_COMPONENTS:
-            loaded_components["image_encoder"] = node_get_component_info(
-                node_id=self.node_id, manager=components, name="image_encoder"
+            # special case for image encoder
+            # TODO: ideally we should detect when is a model that requires it and
+            # enable the output, another alternative is to add a WAN I2V model_type
+            if "image_encoder" in ALL_COMPONENTS:
+                loaded_components["image_encoder"] = node_get_component_info(
+                    node_id=self.node_id, manager=components, name="image_encoder"
+                )
+        except ValueError as e:
+            self.notify(
+                f" ModelsLoader: Error retrieving component info: {e}",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
             )
+            return None
 
         # add repo_id to all models info dicts
         for k, v in loaded_components.items():
-            v["repo_id"] = real_repo_id
+            if v is not None:
+                v["repo_id"] = real_repo_id
 
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
 

@@ -389,7 +389,7 @@ QWEN_IMAGE_EDIT_PLUS_PIPELINE_CONFIG = MellonPipelineConfig(
 )
 
 # =============================================================================
-# Qwen Image Layyered
+# Qwen Image Layered
 # =============================================================================
 
 QWEN_IMAGE_LAYERED_NODE_SPECS = {
@@ -736,8 +736,8 @@ Z_IMAGE_NODE_SPECS = {
             MellonParam.width(),
             MellonParam.height(),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(9),
+            MellonParam.guidance_scale(1.0),
             MellonParam.image_latents_with_strength(),
             MellonParam.strength(),
         ],
