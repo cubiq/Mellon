@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from diffusers.utils import load_image
 from PIL import Image
 
 from mellon.config import CONFIG
@@ -241,12 +242,17 @@ class LoadImage(NodeBase):
         for f in file:
             if f is None or f == "":
                 continue
-            if not Path(f).is_absolute():
-                f = Path(CONFIG.paths["work_dir"]) / f
-            if not Path(f).exists():
-                continue
             try:
-                image = Image.open(f)
+                image = None
+
+                if isinstance(f, str) and f.startswith(("http://", "https://")):
+                    image = load_image(f)
+                else:
+                    if not Path(f).is_absolute():
+                        f = Path(CONFIG.paths["work_dir"]) / f
+                    if not Path(f).exists():
+                        continue
+                    image = Image.open(f)
 
                 # convert to specified channel mode
                 image = convert_channels(image, channels)
