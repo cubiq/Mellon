@@ -145,8 +145,8 @@ QWEN_IMAGE_NODE_SPECS = {
             MellonParam.width(),
             MellonParam.height(),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(50),
+            MellonParam.guidance_scale(4.5),
             MellonParam.image_latents_with_strength(),
             MellonParam.strength(),
             MellonParam.controlnet_bundle(display="input"),
@@ -231,8 +231,8 @@ QWEN_IMAGE_EDIT_NODE_SPECS = {
         "inputs": [
             MellonParam.embeddings(display="input"),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(40),
+            MellonParam.guidance_scale(4.0),
             MellonParam.image_latents(display="input"),
         ],
         "model_inputs": [
@@ -315,8 +315,8 @@ QWEN_IMAGE_EDIT_PLUS_NODE_SPECS = {
         "inputs": [
             MellonParam.embeddings(display="input"),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(40),
+            MellonParam.guidance_scale(4.0),
             MellonParam.image_latents(display="input"),
         ],
         "model_inputs": [
@@ -398,9 +398,9 @@ QWEN_IMAGE_LAYERED_NODE_SPECS = {
         "inputs": [
             MellonParam.embeddings(display="input"),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
-            MellonParam.layers(),
+            MellonParam.num_inference_steps(50),
+            MellonParam.guidance_scale(4.0),
+            MellonParam.layers(4),
             MellonParam.image_latents(display="input"),
         ],
         "model_inputs": [
@@ -484,8 +484,8 @@ FLUX_NODE_SPECS = {
             MellonParam.width(),
             MellonParam.height(),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(28),
+            MellonParam.guidance_scale(3.5),
             MellonParam.image_latents_with_strength(),
             MellonParam.strength(),
         ],
@@ -568,8 +568,8 @@ FLUX_KONTEXT_NODE_SPECS = {
         "inputs": [
             MellonParam.embeddings(display="input"),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
+            MellonParam.num_inference_steps(28),
+            MellonParam.guidance_scale(2.5),
             MellonParam.image_latents(display="input"),
         ],
         "model_inputs": [
@@ -818,12 +818,12 @@ WAN_NODE_SPECS = {
     "denoise": {
         "inputs": [
             MellonParam.embeddings(display="input"),
-            MellonParam.width(),
-            MellonParam.height(),
+            MellonParam.width(832),
+            MellonParam.height(480),
             MellonParam.seed(),
-            MellonParam.num_inference_steps(),
-            MellonParam.guidance_scale(),
-            MellonParam.num_frames(),
+            MellonParam.num_inference_steps(50),
+            MellonParam.guidance_scale(5.0),
+            MellonParam.num_frames(81),
             MellonParam.first_frame_latents(display="input"),
             MellonParam.image_embeds(display="input"),
         ],
