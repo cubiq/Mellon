@@ -5,7 +5,7 @@ from PIL import Image
 
 from mellon.config import CONFIG
 from mellon.NodeBase import NodeBase
-
+from utils.paths import parse_filename
 from . import MESSAGE_DURATION
 
 
@@ -283,3 +283,54 @@ class LoadImage(NodeBase):
             images = images[0]
 
         return {"image": images, "width": width, "height": height}
+
+class SaveVideo(NodeBase):
+    """
+    Save/Re-encode a video
+    """
+    label = "Save Video"
+    category = "video"
+    resizable = True
+    params = {
+        "video": { "type": ["video", "str", "image"], "display": "input" },
+        "filename": {
+            "label": "File",
+            "type": "str",
+            "default": "{PATH:videos}/Mellon_{HASH:6}.mp4",
+        },
+        #"codec": { "type": "str", "options": ["libx264", "vp9"], "default": "libx264" },
+        "quality": { "display": "slider", "type": "int", "min": 1, "max": 10, "default": 5 },
+        "fps": { "label": "FPS", "type": "float", "default": 24, "min": 1, "max": 240, "step": 0.01 },
+        "preview": { "display": "ui_video", "type": "url", "dataSource": "file" },
+        "file": { "type": "video", "display": "output" },
+    }
+
+    def execute(self, **kwargs):
+        import imageio
+        import numpy as np
+        from PIL import Image
+
+        video = kwargs["video"]
+        filename = kwargs.get("filename", "{PATH:videos}/Mellon_{HASH:6}.mp4")
+        quality = kwargs.get("quality", 5)
+        fps = kwargs.get("fps", 24)
+
+        output = None
+        parsed_filename = parse_filename(filename)
+
+        Path(parsed_filename).parent.mkdir(parents=True, exist_ok=True)
+
+        video_frames = [(frame * 255).astype(np.uint8) for frame in video[0]] # one video for now
+
+        writer = imageio.get_writer(parsed_filename, 
+                                    fps=fps, 
+                                    quality=quality,
+                                    codec='libx264',
+                                    )
+        for frame in video_frames:
+            writer.append_data(frame)
+        writer.close()
+
+        return {
+            "file": str(parsed_filename),
+        }
