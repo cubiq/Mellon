@@ -409,13 +409,16 @@ class ModelsLoader(NodeBase):
                 "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
             }
 
-            # special case for image encoder (doesn't work anymore)
+            # special case for image encoder
             # TODO: ideally we should detect when is a model that requires it and
             # enable the output, another alternative is to add a WAN I2V model_type
-            # if "image_encoder" in ALL_COMPONENTS:
-            #     loaded_components["image_encoder"] = node_get_component_info(
-            #         node_id=self.node_id, manager=components, name="image_encoder"
-            #     )
+
+            # this doesn't work with the latest validation so a quick hack is to check
+            # for WAN I2I models
+            if "image_encoder" in ALL_COMPONENTS and "I2V" in real_repo_id:
+                loaded_components["image_encoder"] = node_get_component_info(
+                    node_id=self.node_id, manager=components, name="image_encoder"
+                )
         except ValueError as e:
             self.notify(
                 f" ModelsLoader: Error retrieving component info: {e}",
