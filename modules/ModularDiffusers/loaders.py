@@ -79,7 +79,8 @@ class AutoModelLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "denoise": "Denoise Model",
+                "unet": "UNet",
+                "transformer": "Transformer",
                 "vae": "VAE",
                 "controlnet": "ControlNet",
             },
@@ -124,9 +125,12 @@ class AutoModelLoader(NodeBase):
 
         filters = []
 
-        if model_type == "denoise":
-            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
+        if model_type == "unet":
+            filters = ["UNet2DConditionModel"]
             self.set_field_params("subfolder", {"value": "unet"})
+        elif model_type == "transformer":
+            filters = ["QwenImageTransformer2DModel", "FluxTransformer2DModel", "SD3Transformer2DModel"]
+            self.set_field_params("subfolder", {"value": "transformer"})
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
             self.set_field_params("subfolder", {"value": "vae"})
@@ -136,7 +140,8 @@ class AutoModelLoader(NodeBase):
 
         default_values = {
             "": "",
-            "denoise": "stabilityai/stable-diffusion-xl-base-1.0",
+            "unet": "stabilityai/stable-diffusion-xl-base-1.0",
+            "transformer": "black-forest-labs/FLUX.1-dev",
             "vae": "stabilityai/stable-diffusion-xl-base-1.0",
             "controlnet": "diffusers/controlnet-depth-sdxl-1.0",
         }
