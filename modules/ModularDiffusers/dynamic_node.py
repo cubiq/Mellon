@@ -40,7 +40,7 @@ class DynamicBlockNode(NodeBase):
             "onChange": "update_node",
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
-        "auto_offload": {"label": "Enable Auto Offload", "type": "boolean", "value": True},
+        "auto_offload": {"label": "Enable Auto Offload", "type": "boolean", "value": False},
         "doc": {
             "label": "Doc",
             "type": "string",
@@ -95,6 +95,15 @@ class DynamicBlockNode(NodeBase):
         # Enable auto offload if requested
         if auto_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
             components.enable_auto_cpu_offload(device=device)
+
+        # YiYi Notes: workaround for Mellon bug - cast params to correct type
+        for param_name, param_config in node_config["params"].items():
+            if param_name in kwargs and kwargs[param_name] is not None:
+                param_type = param_config.get("type", None)
+                if param_type == "float":
+                    kwargs[param_name] = float(kwargs[param_name])
+                elif param_type == "int":
+                    kwargs[param_name] = int(kwargs[param_name])
         
         # Handle components
         components_update_dict = {}
