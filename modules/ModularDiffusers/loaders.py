@@ -67,6 +67,252 @@ def update_lora_adapters(lora_node, lora_list):
     if scales:
         lora_node.set_adapters(list(scales.keys()), list(scales.values()))
 
+class QuantizationConfigNode(NodeBase):
+    label = "Quantization Config"
+    category = "loader"
+    resizable = True
+    skipParamsCheck = True
+
+    params = {
+        "model_id": {
+            "label": "Model ID",
+            "display": "modelselect",
+            "type": "string",
+            "value": {"source": "hub", "value": ""},
+            "fieldOptions": {
+                "noValidation": True,
+                "sources": ["hub", "local"],
+            },
+        },
+        "subfolder": {
+            "label": "Subfolder", 
+            "type": "string", 
+            "value": "transformer",
+        },
+        "load_layers_button": {
+            "label": "Load Model Layers",
+            "display": "ui_button",
+            "value": False,
+            "onChange": "update_skip_modules",
+        },
+        "component": {
+            "label": "Component",
+            "type": "string",
+            "value": "transformer",
+        },
+        "quant_type": {
+            "label": "Quant Type",
+            "type": "string",
+            "options": ["bnb_4bit", "bnb_8bit"],
+            "value": "bnb_4bit",
+            "onChange": {
+                "bnb_4bit": [
+                    "bnb_4bit_quant_type",
+                    "bnb_4bit_compute_dtype",
+                    "bnb_4bit_use_double_quant"
+                ],
+                "bnb_8bit": [
+                    "llm_int8_threshold",
+                    "llm_int8_has_fp16_weight"
+                ]
+            }
+        },
+        "bnb_4bit_quant_type": {
+            "label": "4-bit Quant Type",
+            "type": "string",
+            "options": ["nf4", "fp4"],
+            "value": "nf4",
+        },
+        "bnb_4bit_compute_dtype": {
+            "label": "Compute Dtype",
+            "type": "string",
+            "options": ["", "float32", "float16", "bfloat16"],
+            "value": "",
+        },
+        "bnb_4bit_use_double_quant": {
+            "label": "Double Quant",
+            "type": "boolean",
+            "value": False,
+        },
+        "llm_int8_threshold": {
+            "label": "Int8 Threshold",
+            "type": "float",
+            "display": "slider",
+            "default": 6.0,
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.5,
+        },
+        "llm_int8_has_fp16_weight": {
+            "label": "Has FP16 Weight",
+            "type": "boolean",
+            "value": False,
+        },
+        "llm_int8_skip_modules": {
+            "label": "Skip Modules",
+            "type": "string",
+            "display": "select",
+            "options": [],
+            "fieldOptions": {"multiple": True},
+            "value": [],
+        },
+        "quantization_config": {
+            "label": "Quantization Config",
+            "type": "quant_config",
+            "display": "output",
+        },
+    }
+
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self._cached_layers = {}
+
+    def _get_model_layers(self, model_id, subfolder):
+        """Load model with empty weights and extract layer names."""
+        cache_key = f"{model_id}|{subfolder}"
+        if cache_key in self._cached_layers:
+            return self._cached_layers[cache_key]
+
+        try:
+            from accelerate import init_empty_weights
+            from diffusers import AutoModel
+            from diffusers.pipelines.pipeline_loading_utils import ALL_IMPORTABLE_CLASSES, get_class_obj_and_candidates
+            import torch.nn as nn
+
+            config = AutoModel.load_config(model_id, subfolder=subfolder)
+
+            if "_class_name" not in config:
+                raise ValueError(f"Config at {model_id}/{subfolder} doesn't contain '_class_name'")
+
+            orig_class_name = config["_class_name"]
+
+            # Get the model class using diffusers' utility
+            model_cls, _ = get_class_obj_and_candidates(
+                library_name="diffusers",
+                class_name=orig_class_name,
+                importable_classes=ALL_IMPORTABLE_CLASSES,
+                pipelines=None,
+                is_pipeline_module=False,
+            )
+
+            if model_cls is None:
+                raise ValueError(f"Could not find model class: {orig_class_name}")
+
+            # Initialize with empty weights
+            with init_empty_weights():
+                model = model_cls.from_config(config)
+
+            # Get Linear layer names (these are the ones that get quantized)
+            layers = [
+                name for name, module in model.named_modules()
+                if isinstance(module, nn.Linear)
+            ]
+
+            del model
+            self._cached_layers[cache_key] = layers
+            return layers
+
+        except Exception as e:
+            logger.warning(f"Failed to load model layers from {model_id}/{subfolder}: {e}")
+            return []
+
+    def update_skip_modules(self, values, ref):
+        """Called when 'Load Model Layers' button is clicked."""
+        model_id = values.get("model_id", {})
+        if isinstance(model_id, dict):
+            model_id = model_id.get("value", "")
+        
+        subfolder = values.get("subfolder", "")
+
+        if not model_id:
+            self.notify(
+                "Please enter a Model ID first.",
+                variant="warning",
+                persist=False,
+                autoHideDuration=3000,
+            )
+            return
+
+        self.notify(
+            f"Loading layers from {model_id}...",
+            variant="info",
+            persist=False,
+            autoHideDuration=2000,
+        )
+
+        layers = self._get_model_layers(model_id, subfolder)
+
+        if layers:
+            self.set_field_params(
+                "llm_int8_skip_modules",
+                {
+                    "options": layers,
+                    "value": [],
+                }
+            )
+            self.notify(
+                f"Loaded {len(layers)} layers.",
+                variant="success",
+                persist=False,
+                autoHideDuration=3000,
+            )
+        else:
+            self.notify(
+                "No layers found or failed to load model.",
+                variant="error",
+                persist=False,
+                autoHideDuration=3000,
+            )
+
+    def execute(
+        self,
+        model_id,
+        subfolder,
+        component,
+        quant_type,
+        bnb_4bit_quant_type,
+        bnb_4bit_compute_dtype,
+        bnb_4bit_use_double_quant,
+        llm_int8_threshold,
+        llm_int8_has_fp16_weight,
+        llm_int8_skip_modules,
+        **kwargs,
+    ):
+        import torch
+        from diffusers import BitsAndBytesConfig
+
+        def str_to_dtype(dtype_str):
+            dtype_map = {
+                "": None,
+                "float32": torch.float32,
+                "float16": torch.float16,
+                "bfloat16": torch.bfloat16,
+            }
+            return dtype_map.get(dtype_str, None)
+
+        skip_modules = llm_int8_skip_modules if llm_int8_skip_modules else None
+
+        if quant_type == "bnb_4bit":
+            config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type=bnb_4bit_quant_type,
+                bnb_4bit_compute_dtype=str_to_dtype(bnb_4bit_compute_dtype),
+                bnb_4bit_use_double_quant=bnb_4bit_use_double_quant,
+                llm_int8_skip_modules=skip_modules,
+            )
+        elif quant_type == "bnb_8bit":
+            config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=float(llm_int8_threshold),
+                llm_int8_has_fp16_weight=llm_int8_has_fp16_weight,
+                llm_int8_skip_modules=skip_modules,
+            )
+
+        quantization_config = {component: config}
+
+        return {
+            "quantization_config": quantization_config,
+        }
 
 class AutoModelLoader(NodeBase):
     label = "Load Model"
@@ -315,6 +561,10 @@ class ModelsLoader(NodeBase):
             - unet: {unet}
             - vae: {vae}
             - quant_config: {quant_config}
+            - auto_offload: {auto_offload}
+            - trust_remote_code: {trust_remote_code}
+            - lora_list: {lora_list}
+            - model_type: {model_type}
         """)
 
         # TODO: add custom text encoders (depending on architecture)
