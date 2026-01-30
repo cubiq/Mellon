@@ -249,6 +249,7 @@ class ModelsLoader(NodeBase):
         "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
         "scheduler": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
         "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
+        "quant_config": {"label": "Quant Config", "display": "input", "type": "quant_config"},
     }
 
     def __init__(self, node_id=None):
@@ -304,6 +305,7 @@ class ModelsLoader(NodeBase):
         lora_list=None,
         trust_remote_code=False,
         auto_offload=True,
+        quant_config=None,
     ):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
@@ -312,6 +314,7 @@ class ModelsLoader(NodeBase):
             - device: {device}
             - unet: {unet}
             - vae: {vae}
+            - quant_config: {quant_config}
         """)
 
         # TODO: add custom text encoders (depending on architecture)
@@ -388,7 +391,12 @@ class ModelsLoader(NodeBase):
                 if not same_comp_in_collection:
                     components_to_reload.append(comp_name)
 
-        self.loader.load_components(names=components_to_reload, torch_dtype=dtype, trust_remote_code=trust_remote_code)
+        self.loader.load_components(
+            names=components_to_reload, 
+            torch_dtype=dtype, 
+            trust_remote_code=trust_remote_code,
+            quantization_config=quant_config,
+        )
         self.loader.update_components(**components_to_update)
 
         if not auto_offload:
