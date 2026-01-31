@@ -161,6 +161,11 @@ class QuantizationConfigNode(NodeBase):
             "type": "quant_config",
             "display": "output",
         },
+        "config_info": {
+            "label": "Quantization Config Info",
+            "type": "string",
+            "display": "output",
+        },
     }
 
     def __init__(self, node_id=None):
@@ -309,9 +314,12 @@ class QuantizationConfigNode(NodeBase):
             )
 
         quantization_config = {component: config}
+        # Serializable version for DataViewer
+        config_info = {component: config.to_diff_dict() if hasattr(config, "to_diff_dict") else config.to_dict()}
 
         return {
             "quantization_config": quantization_config,
+            "config_info": config_info,
         }
 
 class AutoModelLoader(NodeBase):
@@ -594,8 +602,11 @@ class ModelsLoader(NodeBase):
             )
             return None
 
-        if auto_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
-            components.enable_auto_cpu_offload(device=device)
+        if auto_offload:
+            if not components._auto_offload_enabled or components._auto_offload_device != device:
+                components.enable_auto_cpu_offload(device=device)
+        elif components._auto_offload_enabled:
+            components.disable_auto_cpu_offload()
 
         self.loader = ModularPipeline.from_pretrained(
             real_repo_id, components_manager=components, collection=self.node_id, trust_remote_code=trust_remote_code
