@@ -630,16 +630,44 @@ class ModelsLoader(NodeBase):
             comp_spec = self.loader.get_component_spec(comp_name)
             if comp_spec.load_id != "null":
                 comp_with_same_load_id = components._lookup_ids(load_id=comp_spec.load_id)
-                same_comp_in_collection = []
+                # for components with same load_id, e.g. repo/subfolder/variant/revison
+                # if we can find one with same dtype and quantization config, we reuse it
+                # otherwise, we reload it
+                comp_ids_to_reuse = []
                 for comp_id in comp_with_same_load_id:
-                    if isinstance(components.get_one(component_id=comp_id), torch.nn.Module):
-                        comp_dtype = components.get_one(component_id=comp_id).dtype
-                        if comp_dtype == dtype:
-                            same_comp_in_collection.append(comp_id)
+                    comp = components.get_one(component_id=comp_id)
+                    if isinstance(comp, torch.nn.Module):
+                        comp_dtype = comp.dtype
+                        
+                        # Check if quantization config matches
+                        existing_quant = getattr(comp, "hf_quantizer", None)
+                        requested_quant = quant_config.get(comp_name) if quant_config else None
+                        
+                        quant_matches = True
+                        if requested_quant is not None:
+                            if existing_quant is None:
+                                quant_matches = False
+                            else:
+                                # Compare configs
+                                existing_dict = existing_quant.quantization_config.to_dict()
+                                requested_dict = requested_quant.to_dict()
+                                quant_matches = existing_dict == requested_dict
+                        elif existing_quant is not None:
+                            quant_matches = False
+                        
+                        if comp_dtype == dtype and quant_matches:
+                            comp_ids_to_reuse.append(comp_id)
                     else:
-                        same_comp_in_collection.append(comp_id)
-                if not same_comp_in_collection:
+                        # always reuse non-nn.Module components, e.g. scheduler, tokenizer, etc.
+                        comp_ids_to_reuse.append(comp_id)
+                
+                if not comp_ids_to_reuse:
                     components_to_reload.append(comp_name)
+                else:
+                    # Reuse existing component
+                    components_to_update.update(
+                        components.get_components_by_ids(ids=comp_ids_to_reuse, return_dict_with_names=True)
+                    )
 
         self.loader.load_components(
             names=components_to_reload, 
