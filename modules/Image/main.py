@@ -188,7 +188,7 @@ class Preview(NodeBase):
         }},
         "preview": { "display": "ui_image", "type": "url", "dataSource": "output" },
         "output": { "type": "image", "display": "output", "label": "All images" },
-        "export": { "type": "int", "min": -1, "default": 0, "description": "Export the image at the given index. Use -1 to export all images." },
+        "export": { "type": "str", "default": "0", "description": "Export the image at the given index. Leave empty to export all images." },
         "filtered": { "type": "image", "display": "output", "label": "Selected image" },
     }
     
@@ -199,35 +199,38 @@ class Preview(NodeBase):
         if image is None:
             return {"output": None, "filtered": None}
 
-        # if image is an Image or an array of Images, pass it to the preview
-        if isinstance(image, Image.Image) or (isinstance(image, list) and len(image) > 0 and isinstance(image[0], Image.Image)):
-            filtered = image
-            if export >= 0:
-                if isinstance(image, list):
-                    filtered = image[export] if export < len(image) else None
-                else:
-                    filtered = image if export == 0 else None
-            return {"output": image, "filtered": filtered}
+        output = image
 
-        from modules.Experiments.VAE import VAEDecode
-        pipeline = kwargs["vae"]
-        device = kwargs["device"]
-        if pipeline is None:
-            logger.error("VAE is required to decode latents")
-            return {"output": None}
-        pipeline = pipeline.vae if hasattr(pipeline, 'vae') else pipeline
-        vae = VAEDecode()
-        if isinstance(image, list) or isinstance(image, tuple):
-            output = self.mm_exec(lambda: vae.decode(pipeline, image[0], image[1]), device, models=[pipeline])
-        else:
-            output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
+        # if image is an Image or an array of Images, pass it to the preview
+        if not (isinstance(image, Image.Image) or (isinstance(image, list) and len(image) > 0 and isinstance(image[0], Image.Image))):
+            from modules.Experiments.VAE import VAEDecode
+            pipeline = kwargs["vae"]
+            device = kwargs["device"]
+            if pipeline is None:
+                logger.error("VAE is required to decode latents")
+                return {"output": None}
+            pipeline = pipeline.vae if hasattr(pipeline, 'vae') else pipeline
+            vae = VAEDecode()
+            if isinstance(image, list) or isinstance(image, tuple):
+                output = self.mm_exec(lambda: vae.decode(pipeline, image[0], image[1]), device, models=[pipeline])
+            else:
+                output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
 
         filtered = output
-        if export >= 0:
-            if isinstance(output, list):
-                filtered = output[export] if export < len(output) else None
-            else:
-                filtered = output if export == 0 else None
+        if export != "":
+            try:
+                indices = [int(i.strip()) for i in str(export).split(",") if i.strip()]
+                if len(indices) > 0:
+                    if isinstance(output, list):
+                        filtered = [output[i] for i in indices if 0 <= i < len(output)]
+                        if len(filtered) == 0:
+                            filtered = None
+                        elif len(filtered) == 1:
+                            filtered = filtered[0]
+                    else:
+                        filtered = output if 0 in indices else None
+            except Exception:
+                pass
 
         return {"output": output, "filtered": filtered}
 
