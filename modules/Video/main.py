@@ -107,43 +107,44 @@ class Export(NodeBase):
         quality = kwargs.get("quality", 5)
         fps = kwargs.get("fps", 24)
 
-        output = None
-        parsed_filename = parse_filename(filename)
-
-        Path(parsed_filename).parent.mkdir(parents=True, exist_ok=True)
-
-        if isinstance(video, str):
-            reader = imageio.get_reader(video)
-            writer = imageio.get_writer(parsed_filename, 
-                                        fps=fps, 
-                                        quality=quality,
-                                        codec='libx264',
-                                        )
-            for frame in reader:
-                writer.append_data(frame)
-            reader.close()
-            writer.close()
-
-        elif isinstance(video, list):
-            # It's a list of images
-            if not video:
-                return {"file": None}
+        def save_video(video_data):
+            if not video_data:
+                return None
             
-            if not isinstance(video, list):
-                video = [video]
+            parsed_filename = parse_filename(filename)
+            Path(parsed_filename).parent.mkdir(parents=True, exist_ok=True)
 
-            if isinstance(video[0], Image.Image):
-                video = [np.array(img) for img in video]
+            if isinstance(video_data, str):
+                reader = imageio.get_reader(video_data)
+                writer = imageio.get_writer(parsed_filename, 
+                                            fps=fps, 
+                                            quality=quality,
+                                            codec='libx264',
+                                            )
+                for frame in reader:
+                    writer.append_data(frame)
+                reader.close()
+                writer.close()
 
-            writer = imageio.get_writer(parsed_filename, 
-                                        fps=fps, 
-                                        quality=quality,
-                                        codec='libx264',
-                                        )
-            for frame in video:
-                writer.append_data(frame)
-            writer.close()
+            elif isinstance(video_data, list):
+                # It's a list of images
+                if isinstance(video_data[0], Image.Image):
+                    video_data = [np.array(img) for img in video_data]
+
+                writer = imageio.get_writer(parsed_filename, 
+                                            fps=fps, 
+                                            quality=quality,
+                                            codec='libx264',
+                                            )
+                for frame in video_data:
+                    writer.append_data(frame)
+                writer.close()
+            
+            return str(parsed_filename)
+
+        if isinstance(video, list) and video and isinstance(video[0], list):
+             return { "file": [save_video(v) for v in video] }
 
         return {
-            "file": str(parsed_filename),
+            "file": save_video(video),
         }
