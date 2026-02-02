@@ -36,6 +36,12 @@ class Load(NodeBase):
                 "multiple": True,
             },
         },
+        "alpha_channel": {
+            "label": "Alpha Channel",
+            "type": "string",
+            "options": ["ignore", "add alpha", "remove alpha"],
+            "default": "ignore",
+        },
         "width": { "display": "output", "type": "int" },
         "height": { "display": "output", "type": "int" },
     }
@@ -50,12 +56,26 @@ class Load(NodeBase):
         for f in file:
             if f is None or f == "":
                 continue
-            if not Path(f).is_absolute():
-                f = Path(CONFIG.paths['work_dir']) / f
-            if not Path(f).exists():
-                continue
+            
             try:
-                image = Image.open(f)
+                if f.startswith("http://") or f.startswith("https://"):
+                    import requests
+                    from io import BytesIO
+                    response = requests.get(f)
+                    response.raise_for_status()
+                    image = Image.open(BytesIO(response.content))
+                else:
+                    if not Path(f).is_absolute():
+                        f = Path(CONFIG.paths['work_dir']) / f
+                    if not Path(f).exists():
+                        continue
+                    image = Image.open(f)
+
+                alpha_channel = kwargs.get("alpha_channel", "ignore")
+                if alpha_channel == "add alpha" and image.mode != "RGBA":
+                    image = image.convert("RGBA")
+                elif alpha_channel == "remove alpha" and image.mode == "RGBA":
+                    image = image.convert("RGB")
                 images.append(image)
                 widths.append(image.width)
                 heights.append(image.height)
@@ -167,17 +187,27 @@ class Preview(NodeBase):
             "condition": { "type": "latent" }
         }},
         "preview": { "display": "ui_image", "type": "url", "dataSource": "output" },
-        "output": { "type": "image", "display": "output" },
+        "output": { "type": "image", "display": "output", "label": "All images" },
+        "export": { "type": "int", "min": -1, "default": 0, "description": "Export the image at the given index. Use -1 to export all images." },
+        "filtered": { "type": "image", "display": "output", "label": "Selected image" },
     }
     
     def execute(self, **kwargs):
         image = kwargs["image"]
+        export = kwargs["export"]
+        filtered = None
         if image is None:
-            return {"output": None}
+            return {"output": None, "filtered": None}
 
         # if image is an Image or an array of Images, pass it to the preview
         if isinstance(image, Image.Image) or (isinstance(image, list) and len(image) > 0 and isinstance(image[0], Image.Image)):
-            return {"output": image}
+            filtered = image
+            if export >= 0:
+                if isinstance(image, list):
+                    filtered = image[export] if export < len(image) else None
+                else:
+                    filtered = image if export == 0 else None
+            return {"output": image, "filtered": filtered}
 
         from modules.Experiments.VAE import VAEDecode
         pipeline = kwargs["vae"]
@@ -192,8 +222,14 @@ class Preview(NodeBase):
         else:
             output = self.mm_exec(lambda: vae.decode(pipeline, image), device, models=[pipeline])
 
-        return {"output": output}
+        filtered = output
+        if export >= 0:
+            if isinstance(output, list):
+                filtered = output[export] if export < len(output) else None
+            else:
+                filtered = output if export == 0 else None
 
+        return {"output": output, "filtered": filtered}
 
 class Resize(NodeBase):
     """
@@ -331,5 +367,79 @@ class ApplyMask(NodeBase):
             msk = msk.convert("L")
             img.putalpha(msk)
             output.append(img)
+
+        return {"output": output}
+
+class Merge(NodeBase):
+    label = "Merge Images"
+    category = "image"
+    params = {
+        "image_from": {
+            "label": "Image From",
+            "display": "input",
+            "type": "image",
+        },
+        "image_to": {
+            "label": "Image To",
+            "display": "input",
+            "type": "image",
+        },
+        "mask": {
+            "label": "Optional Mask",
+            "display": "input",
+            "type": "image",
+            "description": "Optional mask to control the merging. If not provided, alpha compositing will be used."
+        },
+        "output": {
+            "label": "Output",
+            "display": "output",
+            "type": "image",
+        }
+    }
+
+    def execute(self, **kwargs):
+        image_from = kwargs.get("image_from")
+        image_to = kwargs.get("image_to")
+        mask = kwargs.get("mask")
+
+        if image_from is None or image_to is None:
+            return {"output": None}
+
+        image_from = [image_from] if not isinstance(image_from, list) else image_from
+        image_to = [image_to] if not isinstance(image_to, list) else image_to
+        if mask is not None:
+            mask = [mask] if not isinstance(mask, list) else mask
+
+        max_len = max(len(image_from), len(image_to), len(mask) if mask is not None else 0)
+
+        def extend_list(lst, target_len):
+            if len(lst) < target_len:
+                return lst + [lst[-1]] * (target_len - len(lst))
+            return lst[:target_len]
+
+        image_from = extend_list(image_from, max_len)
+        image_to = extend_list(image_to, max_len)
+        if mask is not None:
+            mask = extend_list(mask, max_len)
+        else:
+            mask = [None] * max_len
+
+        output = []
+        for img_from, img_to, msk in zip(image_from, image_to, mask):
+            img_to = img_to.convert("RGBA")
+
+            if img_from.size != img_to.size:
+                img_from = img_from.resize(img_to.size, Image.Resampling.BICUBIC)
+            img_from = img_from.convert("RGBA")
+
+            if msk is not None:
+                if msk.size != img_to.size:
+                    msk = msk.resize(img_to.size, Image.Resampling.BICUBIC)
+                msk = msk.convert("L")
+                blended = Image.composite(img_from, img_to, msk)
+            else:
+                blended = Image.alpha_composite(img_to, img_from)
+
+            output.append(blended)
 
         return {"output": output}
