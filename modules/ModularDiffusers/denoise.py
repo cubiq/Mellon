@@ -102,20 +102,8 @@ class Denoise(NodeBase):
 
     def execute(self, **kwargs):
         kwargs = dict(kwargs)
-        # 1. Get node config
-        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
-        # 2. create pipeline
-
-        # get device and repo_id
-        device = None
-        repo_id = None
-
-        if (unet := kwargs.get("unet")) and isinstance(unet, dict):
-            device = unet.get("execution_device")
-            repo_id = unet.get("repo_id")
-
-        if device is None or repo_id is None:
+        if not ((unet := kwargs.get("unet")) and isinstance(unet, dict)):
             self.notify(
                 "You have to connect the denoise model",
                 variant="error",
@@ -123,6 +111,12 @@ class Denoise(NodeBase):
                 autoHideDuration=MESSAGE_DURATION,
             )
             return None
+    
+        # 1. Get node config
+        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
+
+        # 2. create pipeline
+        repo_id = unet.get("repo_id", None)
 
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
@@ -158,6 +152,8 @@ class Denoise(NodeBase):
             components_to_update = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
             if components_to_update:
                 self._pipeline.update_components(**components_to_update)
+
+        device = self._pipeline._execution_device
 
         # 4. compile a dict of runtime inputs from kwargs based on node_config["input_names"]
         node_kwargs = {}
