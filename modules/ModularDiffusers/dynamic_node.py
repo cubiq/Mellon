@@ -4,9 +4,9 @@ from diffusers import ModularPipeline
 from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 from mellon.NodeBase import NodeBase
+from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import components
-from utils.torch_utils import str_to_dtype, DEFAULT_DEVICE, DEVICE_LIST
 
 
 logger = logging.getLogger("mellon")
@@ -29,7 +29,7 @@ class DynamicBlockNode(NodeBase):
             "value": "",
             "options": {
                 "": "",
-                "OzzyGT/florence-2-block": "Florence-2 Block",
+                "diffusers/FLUX.2-klein-4B-modular": "FLUX.2-klein-4B",
             },
             "fieldOptions": {"noValidation": True},
         },
@@ -74,24 +74,21 @@ class DynamicBlockNode(NodeBase):
         repo_id = kwargs.pop("repo_id", "")
         device = kwargs.pop("device", DEFAULT_DEVICE)
         auto_offload = kwargs.pop("auto_offload", True)
-        
+
         pipeline = ModularPipeline.from_pretrained(
-            repo_id, 
-            trust_remote_code=True, 
-            components_manager=components, 
-            collection=self.node_id
+            repo_id, trust_remote_code=True, components_manager=components, collection=self.node_id
         )
 
         # Load config to get input/output names and dtype
         custom_mellon_config = MellonPipelineConfig.load(repo_id)
         node_config = custom_mellon_config.node_params["custom"]
-        
+
         # Get dtype from config
         default_dtype = custom_mellon_config.default_dtype
         if not default_dtype:
             default_dtype = "bfloat16"
         torch_dtype = str_to_dtype(default_dtype)
-        
+
         # Enable auto offload if requested
         if auto_offload and (not components._auto_offload_enabled or components._auto_offload_device != device):
             components.enable_auto_cpu_offload(device=device)
@@ -104,7 +101,7 @@ class DynamicBlockNode(NodeBase):
                     kwargs[param_name] = float(kwargs[param_name])
                 elif param_type == "int":
                     kwargs[param_name] = int(kwargs[param_name])
-        
+
         # Handle components
         components_update_dict = {}
         for comp_name in node_config.get("model_input_names", []):
@@ -112,13 +109,12 @@ class DynamicBlockNode(NodeBase):
                 model_info_dict = kwargs.pop(comp_name)
                 components_update_dict.update(components.get_components_by_ids([model_info_dict["model_id"]]))
 
-
         # Check which components need to be loaded vs reused
         components_to_load = []
         for comp_name in pipeline.pretrained_component_names:
             if comp_name in components_update_dict:
                 continue  # Already provided externally
-                
+
             comp_spec = pipeline.get_component_spec(comp_name)
             comp_with_same_load_id = components._lookup_ids(load_id=comp_spec.load_id)
             if comp_with_same_load_id:
@@ -130,27 +126,27 @@ class DynamicBlockNode(NodeBase):
 
         pipeline.update_components(**components_update_dict)
         pipeline.load_components(names=components_to_load, torch_dtype=torch_dtype)
-        
+
         # Move to device if not using auto offload
         if not auto_offload:
             pipeline.to(device)
-        
+
         # Build inputs dict
         inputs_dict = {}
         for input_name in node_config["input_names"]:
             if input_name in kwargs:
                 inputs_dict[input_name] = kwargs.pop(input_name)
-        
+
         # Execute pipeline - strip out_ prefix for pipeline call
         mellon_output_names = node_config["output_names"]
         pipeline_output_names = [name[4:] if name.startswith("out_") else name for name in mellon_output_names]
         pipeline_outputs = pipeline(**inputs_dict, output=pipeline_output_names)
-        
+
         # Map pipeline outputs back to Mellon names (with out_ prefix)
         final_outputs = {}
         for mellon_name, pipeline_name in zip(mellon_output_names, pipeline_output_names):
             if pipeline_name in pipeline_outputs:
                 final_outputs[mellon_name] = pipeline_outputs[pipeline_name]
-        
+
         final_outputs["doc"] = pipeline.blocks.doc
         return final_outputs
