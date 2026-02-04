@@ -813,7 +813,74 @@ Z_IMAGE_PIPELINE_CONFIG = MellonPipelineConfig(
 # WAN
 # =============================================================================
 
-WAN_NODE_SPECS = {
+WAN_T2V_NODE_SPECS = {
+    "controlnet": None,
+    "denoise": {
+        "inputs": [
+            MellonParam.embeddings(display="input"),
+            MellonParam.width(832),
+            MellonParam.height(480),
+            MellonParam.seed(),
+            MellonParam.num_inference_steps(50),
+            MellonParam.guidance_scale(5.0),
+            MellonParam.num_frames(81),
+        ],
+        "model_inputs": [
+            MellonParam.unet(),
+            MellonParam.scheduler(),
+        ],
+        "outputs": [
+            MellonParam.latents(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["embeddings"],
+        "required_model_inputs": ["unet", "scheduler"],
+        "block_name": "denoise",
+    },
+    "text_encoder": {
+        "inputs": [
+            MellonParam.prompt(),
+            MellonParam.negative_prompt(),
+        ],
+        "model_inputs": [
+            MellonParam.text_encoders(),
+        ],
+        "outputs": [
+            MellonParam.embeddings(display="output"),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["prompt"],
+        "required_model_inputs": ["text_encoders"],
+        "block_name": "text_encoder",
+    },
+    "decoder": {
+        "inputs": [
+            MellonParam.latents(display="input"),
+            MellonParam(
+                name="output_type", label="Output Type", type="dropdown", options=["np", "pil"], default="pil"
+            ),
+        ],
+        "model_inputs": [
+            MellonParam.vae(),
+        ],
+        "outputs": [
+            MellonParam.videos(),
+            MellonParam.doc(),
+        ],
+        "required_inputs": ["latents"],
+        "required_model_inputs": ["vae"],
+        "block_name": "decode",
+    },
+}
+
+WAN_T2V_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=WAN_T2V_NODE_SPECS,
+    label="WAN2 T2V",
+    default_repo="Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+    default_dtype="bfloat16",
+)
+
+WAN_I2V_NODE_SPECS = {
     "controlnet": None,
     "denoise": {
         "inputs": [
@@ -888,6 +955,9 @@ WAN_NODE_SPECS = {
     "decoder": {
         "inputs": [
             MellonParam.latents(display="input"),
+            MellonParam(
+                name="output_type", label="Output Type", type="dropdown", options=["np", "pil"], default="pil"
+            ),
         ],
         "model_inputs": [
             MellonParam.vae(),
@@ -902,11 +972,10 @@ WAN_NODE_SPECS = {
     },
 }
 
-WAN_PIPELINE_CONFIG = MellonPipelineConfig(
-    node_specs=WAN_NODE_SPECS,
-    label="WAN",
-    # default_repo="Wan-AI/Wan2.2-I2V-A14B-Diffusers",
-    default_repo="Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+WAN_I2V_PIPELINE_CONFIG = MellonPipelineConfig(
+    node_specs=WAN_I2V_NODE_SPECS,
+    label="WAN2 I2V",
+    default_repo="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
     default_dtype="bfloat16",
 )
 
@@ -1029,9 +1098,16 @@ def _initialize_registry(registry: ModularMellonNodeRegistry):
     try:
         from diffusers import WanModularPipeline
 
-        registry.register(WanModularPipeline, WAN_PIPELINE_CONFIG)
+        registry.register(WanModularPipeline, WAN_T2V_PIPELINE_CONFIG)
     except Exception as e:
         logger.warning(f"Failed to register WanModularPipeline: {e}")
+
+    try:
+        from diffusers import WanImage2VideoModularPipeline
+
+        registry.register(WanImage2VideoModularPipeline, WAN_I2V_PIPELINE_CONFIG)
+    except Exception as e:
+        logger.warning(f"Failed to register WanImage2VideoModularPipeline: {e}")
 
     registry._initialized = True
 

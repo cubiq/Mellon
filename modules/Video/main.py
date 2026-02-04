@@ -108,7 +108,7 @@ class Export(NodeBase):
         fps = kwargs.get("fps", 24)
 
         def save_video(video_data):
-            if not video_data:
+            if video_data is None:
                 return None
             
             parsed_filename = parse_filename(filename)

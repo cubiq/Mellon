@@ -67,6 +67,7 @@ def update_lora_adapters(lora_node, lora_list):
     if scales:
         lora_node.set_adapters(list(scales.keys()), list(scales.values()))
 
+
 class QuantizationConfigNode(NodeBase):
     label = "Quantization Config"
     category = "loader"
@@ -85,8 +86,8 @@ class QuantizationConfigNode(NodeBase):
             },
         },
         "subfolder": {
-            "label": "Subfolder", 
-            "type": "string", 
+            "label": "Subfolder",
+            "type": "string",
             "value": "transformer",
         },
         "load_layers_button": {
@@ -106,16 +107,9 @@ class QuantizationConfigNode(NodeBase):
             "options": ["bnb_4bit", "bnb_8bit"],
             "value": "bnb_4bit",
             "onChange": {
-                "bnb_4bit": [
-                    "bnb_4bit_quant_type",
-                    "bnb_4bit_compute_dtype",
-                    "bnb_4bit_use_double_quant"
-                ],
-                "bnb_8bit": [
-                    "llm_int8_threshold",
-                    "llm_int8_has_fp16_weight"
-                ]
-            }
+                "bnb_4bit": ["bnb_4bit_quant_type", "bnb_4bit_compute_dtype", "bnb_4bit_use_double_quant"],
+                "bnb_8bit": ["llm_int8_threshold", "llm_int8_has_fp16_weight"],
+            },
         },
         "bnb_4bit_quant_type": {
             "label": "4-bit Quant Type",
@@ -179,10 +173,10 @@ class QuantizationConfigNode(NodeBase):
             return self._cached_layers[cache_key]
 
         try:
+            import torch.nn as nn
             from accelerate import init_empty_weights
             from diffusers import AutoModel
             from diffusers.pipelines.pipeline_loading_utils import ALL_IMPORTABLE_CLASSES, get_class_obj_and_candidates
-            import torch.nn as nn
 
             config = AutoModel.load_config(model_id, subfolder=subfolder)
 
@@ -208,10 +202,7 @@ class QuantizationConfigNode(NodeBase):
                 model = model_cls.from_config(config)
 
             # Get Linear layer names (these are the ones that get quantized)
-            layers = [
-                name for name, module in model.named_modules()
-                if isinstance(module, nn.Linear)
-            ]
+            layers = [name for name, module in model.named_modules() if isinstance(module, nn.Linear)]
 
             del model
             self._cached_layers[cache_key] = layers
@@ -226,7 +217,7 @@ class QuantizationConfigNode(NodeBase):
         model_id = values.get("model_id", {})
         if isinstance(model_id, dict):
             model_id = model_id.get("value", "")
-        
+
         subfolder = values.get("subfolder", "")
 
         if not model_id:
@@ -253,7 +244,7 @@ class QuantizationConfigNode(NodeBase):
                 {
                     "options": layers,
                     "value": [],
-                }
+                },
             )
             self.notify(
                 f"Loaded {len(layers)} layers.",
@@ -321,6 +312,7 @@ class QuantizationConfigNode(NodeBase):
             "quantization_config": quantization_config,
             "config_info": config_info,
         }
+
 
 class AutoModelLoader(NodeBase):
     label = "Load Model"
@@ -649,11 +641,11 @@ class ModelsLoader(NodeBase):
                     comp = components.get_one(component_id=comp_id)
                     if isinstance(comp, torch.nn.Module):
                         comp_dtype = comp.dtype
-                        
+
                         # Check if quantization config matches
                         existing_quant = getattr(comp, "hf_quantizer", None)
                         requested_quant = quant_config.get(comp_name) if quant_config else None
-                        
+
                         quant_matches = True
                         if requested_quant is not None:
                             if existing_quant is None:
@@ -665,13 +657,13 @@ class ModelsLoader(NodeBase):
                                 quant_matches = existing_dict == requested_dict
                         elif existing_quant is not None:
                             quant_matches = False
-                        
+
                         if comp_dtype == dtype and quant_matches:
                             comp_ids_to_reuse.append(comp_id)
                     else:
                         # always reuse non-nn.Module components, e.g. scheduler, tokenizer, etc.
                         comp_ids_to_reuse.append(comp_id)
-                
+
                 if not comp_ids_to_reuse:
                     components_to_reload.append(comp_name)
                 else:
@@ -681,8 +673,8 @@ class ModelsLoader(NodeBase):
                     )
 
         self.loader.load_components(
-            names=components_to_reload, 
-            torch_dtype=dtype, 
+            names=components_to_reload,
+            torch_dtype=dtype,
             trust_remote_code=trust_remote_code,
             quantization_config=quant_config,
         )
@@ -710,17 +702,6 @@ class ModelsLoader(NodeBase):
                 },
                 "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
             }
-
-            # special case for image encoder
-            # TODO: ideally we should detect when is a model that requires it and
-            # enable the output, another alternative is to add a WAN I2V model_type
-
-            # this doesn't work with the latest validation so a quick hack is to check
-            # for WAN I2I models
-            if "image_encoder" in ALL_COMPONENTS and "I2V" in real_repo_id:
-                loaded_components["image_encoder"] = node_get_component_info(
-                    node_id=self.node_id, manager=components, name="image_encoder"
-                )
         except ValueError as e:
             self.notify(
                 f" ModelsLoader: Error retrieving component info: {e}",
