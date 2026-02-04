@@ -566,13 +566,13 @@ class WebServer:
         filename = request.query.get('filename', f"{field}")
 
         charset = None
-        if type == 'image':
+        if type == 'image' or any(t == 'image' for t in type):
             format = request.query.get('format', 'WEBP').upper()
-            quality = request.query.get('quality')
+            quality = request.query.get('quality', 100)
             out = to_bytes(type, data, {'format': format, 'quality': quality})
             content_type = f'image/{format.lower()}'
             filename = f"{filename}.{format.lower()}"
-        elif type == 'text' or type.startswith('str'):
+        elif type == 'text' or any(t.startswith('str') for t in type):
             out = str(data).encode('utf-8')
             content_type = f'text/plain'
             charset = 'utf-8'
