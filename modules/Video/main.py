@@ -1,11 +1,9 @@
-import logging
-from pathlib import Path
-
-from mellon.config import CONFIG
 from mellon.NodeBase import NodeBase
+from mellon.config import CONFIG
+from pathlib import Path
+import logging
+from utils.torch_utils import DEVICE_LIST, DEFAULT_DEVICE
 from utils.paths import parse_filename
-from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST
-
 
 logger = logging.getLogger('mellon')
 
@@ -143,18 +141,6 @@ class Export(NodeBase):
                                         codec='libx264',
                                         )
             for frame in video:
-                writer.append_data(frame)
-            writer.close()
-        elif isinstance(video, np.ndarray):
-            # modular diffusers video output
-            video_frames = [(frame * 255).astype(np.uint8) for frame in video[0]] # one video for now
-
-            writer = imageio.get_writer(parsed_filename, 
-                                        fps=fps, 
-                                        quality=quality,
-                                        codec='libx264',
-                                        )
-            for frame in video_frames:
                 writer.append_data(frame)
             writer.close()
 
