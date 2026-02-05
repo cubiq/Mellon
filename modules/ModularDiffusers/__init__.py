@@ -1,7 +1,14 @@
 from diffusers import ComponentsManager
 
+from .modular_utils import ModularMellonNodeRegistry
 
+
+MESSAGE_DURATION = 5000
 components = ComponentsManager()
+
+
+# Global singleton registry instance for the package
+MODULAR_REGISTRY = ModularMellonNodeRegistry()
 
 MODULE_PARSE = [
     "adapters",
@@ -13,6 +20,7 @@ MODULE_PARSE = [
     "loaders",
     "schedulers",
     "dynamic_node",
+    "outputs",
 ]
 
 SDXL_BLOCKS = [

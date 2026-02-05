@@ -1,20 +1,20 @@
+import importlib
 import logging
 
 import torch
-from diffusers.modular_pipelines import ModularPipeline
 from PIL import Image
 
 from mellon.NodeBase import NodeBase
+
+from . import MESSAGE_DURATION, components
+from .modular_utils import DummyCustomPipeline, pipeline_class_to_mellon_node_config
 from .utils import collect_model_ids
-from .modular_utils import pipeline_class_to_mellon_node_config, DummyCustomPipeline
-import importlib
-from . import components
 
 
 logger = logging.getLogger("mellon")
 
 
-#YiYi Notes: this is not working for qwen/flux as latents needs to be unpacked first
+# YiYi Notes: this is not working for qwen/flux as latents needs to be unpacked first
 class LatentsPreview(NodeBase):
     label = "Latents Preview"
     category = "image"
@@ -53,33 +53,11 @@ class DecodeLatents(NodeBase):
     skipParamsCheck = True
     node_type = "decoder"
     params = {
-        "model_type": {
-            "label": "Model Type",
-            "type": "string",
-            "default": "",
-            "hidden": True,
-        },
         "vae": {
-            "label": "VAE *", 
-            "display": "input", 
+            "label": "VAE *",
+            "display": "input",
             "type": "diffusers_auto_model",
-            "onSignal": [
-                {
-                    "action": "value",
-                    "target": "model_type",
-                    # "data": SIGNAL_DATA, # YiYi Notes: not working
-                    "data": {
-                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                        "QwenImageModularPipeline": "QwenImageModularPipeline",
-                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                        "FluxModularPipeline": "FluxModularPipeline",
-                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                        "DummyCustomPipeline": "DummyCustomPipeline",
-                    },
-                },
-                {"action": "exec", "data": "update_node"},
-            ]
+            "onSignal": "update_node",
         },
     }
 
@@ -89,54 +67,26 @@ class DecodeLatents(NodeBase):
         self._pipeline_class = None
 
     def update_node(self, values, ref):
-        node_params = {
-            "model_type": {
-                "label": "Model Type",
-                "type": "string",
-                "default": "",
-                "hidden": True,
-            },
-            "vae": {
-                "label": "VAE *",
-                "display": "input",
-                "type": "diffusers_auto_model",
-                "onSignal": [
-                    {
-                        "action": "value",
-                        "target": "model_type",
-                        "data": {
-                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                            "QwenImageModularPipeline": "QwenImageModularPipeline",
-                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                            "FluxModularPipeline": "FluxModularPipeline",
-                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                            "DummyCustomPipeline": "DummyCustomPipeline",
-                        },
-                    },
-                    {"action": "exec", "data": "update_node"},
-                ],
-            },
-        }
+        node_params = {}
+        model_type = self.get_signal_value("vae")
 
-        model_type = values.get("model_type", "")
-
-        if model_type == "" or self._model_type == model_type:
+        if self._model_type == model_type:
             return None
 
-        self._model_type = model_type
-        if model_type == "DummyCustomPipeline":
+        if model_type is None or model_type == "" or model_type == "DummyCustomPipeline":
             self._pipeline_class = DummyCustomPipeline
         else:
             diffusers_module = importlib.import_module("diffusers")
             self._pipeline_class = getattr(diffusers_module, model_type)
+
+        self._model_type = model_type
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         if node_config is None:
             self.send_node_definition(node_params)
             return
-        
+
         node_params_to_update = node_config["params"]
         node_params_to_update.pop("vae", None)
         node_params.update(**node_params_to_update)
@@ -146,12 +96,22 @@ class DecodeLatents(NodeBase):
         kwargs = dict(kwargs)
 
         # 1. Get node config
-        blocks, node_config = pipeline_class_to_mellon_node_config(
-            self._pipeline_class, self.node_type
-        )
+        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         # 2. Create pipeline
-        repo_id = kwargs.get("vae")["repo_id"]
+        repo_id = None
+        if (vae := kwargs.get("vae")) and "repo_id" in vae:
+            repo_id = vae["repo_id"]
+
+        if repo_id is None:
+            self.notify(
+                "You have to connect the vae",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
         # 3. Cast params to correct types (Mellon bug workaround)
@@ -194,11 +154,16 @@ class DecodeLatents(NodeBase):
                 node_kwargs[name] = value
 
         # 6. Run the pipeline
-        node_output_state = self._pipeline(**node_kwargs)
+        try:
+            node_output_state = self._pipeline(**node_kwargs)
+        except ValueError as e:
+            self.notify(str(e), variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
+            return None
 
         # 7. Prepare outputs based on node_config["output_names"]
-        output_names = node_config["output_names"].copy()
         outputs = {}
+        output_names = node_config["output_names"].copy()
+
         for name in output_names:
             if name == "doc":
                 outputs["doc"] = self._pipeline.blocks.doc
@@ -215,33 +180,7 @@ class ImageEncode(NodeBase):
     skipParamsCheck = True
     node_type = "vae_encoder"
     params = {
-        "model_type": {
-            "label": "Model Type",
-            "type": "string",
-            "default": "",
-            "hidden": True, # Hidden field to receive signal data
-        },
-        "vae": {
-            "label": "VAE *",
-            "display": "input",
-            "type": "diffusers_auto_model",
-            "onSignal": [
-                {
-                    "action": "value",
-                    "target": "model_type",
-                    "data": {
-                        "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                        "QwenImageModularPipeline": "QwenImageModularPipeline",
-                        "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                        "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                        "FluxModularPipeline": "FluxModularPipeline",
-                        "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                        "DummyCustomPipeline": "DummyCustomPipeline",
-                    },
-                },
-                {"action": "exec", "data": "update_node"},
-            ],
-        },
+        "vae": {"label": "VAE *", "display": "input", "type": "diffusers_auto_model", "onSignal": "update_node"},
     }
 
     def __init__(self, node_id=None):
@@ -250,58 +189,28 @@ class ImageEncode(NodeBase):
         self._pipeline_class = None
 
     def update_node(self, values, ref):
+        node_params = {}
+        model_type = self.get_signal_value("vae")
 
-        node_params = {
-            "model_type": {
-                "label": "Model Type",
-                "type": "string",
-                "default": "",
-                "hidden": True,
-            },
-            "vae": {
-                "label": "VAE *",
-                "display": "input",
-                "type": "diffusers_auto_model",
-                "onSignal": [
-                    {
-                        "action": "value",
-                        "target": "model_type",
-                        "data": {
-                            "StableDiffusionXLModularPipeline": "StableDiffusionXLModularPipeline",
-                            "QwenImageModularPipeline": "QwenImageModularPipeline",
-                            "QwenImageEditModularPipeline": "QwenImageEditModularPipeline",
-                            "QwenImageEditPlusModularPipeline": "QwenImageEditPlusModularPipeline",
-                            "FluxModularPipeline": "FluxModularPipeline",
-                            "FluxKontextModularPipeline": "FluxKontextModularPipeline",
-                            "DummyCustomPipeline": "DummyCustomPipeline",
-                        },
-                    },
-                    {"action": "exec", "data": "update_node"},
-                ],
-            },
-        }
-
-        model_type = values.get("model_type", "")
-
-        if model_type == "" or self._model_type == model_type:
+        if self._model_type == model_type:
             return None
 
-        self._model_type = model_type
-        if model_type == "DummyCustomPipeline":
+        if model_type is None or model_type == "" or model_type == "DummyCustomPipeline":
             self._pipeline_class = DummyCustomPipeline
         else:
             diffusers_module = importlib.import_module("diffusers")
             self._pipeline_class = getattr(diffusers_module, model_type)
+
+        self._model_type = model_type
 
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         if node_config is None:
             self.send_node_definition(node_params)
             return
-        
+
         node_params_to_update = node_config["params"]
         node_params_to_update.pop("vae", None)
-
         node_params.update(**node_params_to_update)
         self.send_node_definition(node_params)
 
@@ -309,12 +218,22 @@ class ImageEncode(NodeBase):
         kwargs = dict(kwargs)
 
         # 1. Get node config
-        blocks, node_config = pipeline_class_to_mellon_node_config(
-            self._pipeline_class, self.node_type
-        )
+        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         # 2. Create pipeline
-        repo_id = kwargs.get("vae")["repo_id"]
+        repo_id = None
+        if (vae := kwargs.get("vae")) and "repo_id" in vae:
+            repo_id = vae["repo_id"]
+
+        if repo_id is None:
+            self.notify(
+                "You have to connect the vae",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
         self._pipeline = blocks.init_pipeline(repo_id, components_manager=components)
 
         # 3. Cast params to correct types (Mellon bug workaround)
@@ -357,7 +276,11 @@ class ImageEncode(NodeBase):
                 node_kwargs[name] = value
 
         # 6. Run the pipeline
-        node_output_state = self._pipeline(**node_kwargs)
+        try:
+            node_output_state = self._pipeline(**node_kwargs)
+        except ValueError as e:
+            self.notify(str(e), variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
+            return None
 
         # 7. Prepare outputs based on node_config["output_names"]
         output_names = node_config["output_names"].copy()

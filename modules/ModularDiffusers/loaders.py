@@ -1,16 +1,19 @@
 import logging
-from dataclasses import dataclass
 
 import torch
 from diffusers import ComponentSpec, ModularPipeline
-from transformers import CLIPVisionModelWithProjection
+from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
-from . import components
-from .modular_utils import get_all_model_types, get_model_type_metadata, MODULAR_REGISTRY, DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG
-from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
+from . import MESSAGE_DURATION, MODULAR_REGISTRY, components
+from .modular_utils import (
+    DUMMY_CUSTOM_PIPELINE_CONFIG,
+    DummyCustomPipeline,
+    get_all_model_types,
+    get_model_type_metadata,
+)
 
 
 logger = logging.getLogger("mellon")
@@ -65,6 +68,252 @@ def update_lora_adapters(lora_node, lora_list):
         lora_node.set_adapters(list(scales.keys()), list(scales.values()))
 
 
+class QuantizationConfigNode(NodeBase):
+    label = "Quantization Config"
+    category = "loader"
+    resizable = True
+    skipParamsCheck = True
+
+    params = {
+        "model_id": {
+            "label": "Model ID",
+            "display": "modelselect",
+            "type": "string",
+            "value": {"source": "hub", "value": ""},
+            "fieldOptions": {
+                "noValidation": True,
+                "sources": ["hub", "local"],
+            },
+        },
+        "subfolder": {
+            "label": "Subfolder",
+            "type": "string",
+            "value": "transformer",
+        },
+        "load_layers_button": {
+            "label": "Load Model Layers",
+            "display": "ui_button",
+            "value": False,
+            "onChange": "update_skip_modules",
+        },
+        "component": {
+            "label": "Component",
+            "type": "string",
+            "value": "transformer",
+        },
+        "quant_type": {
+            "label": "Quant Type",
+            "type": "string",
+            "options": ["bnb_4bit", "bnb_8bit"],
+            "value": "bnb_4bit",
+            "onChange": {
+                "bnb_4bit": ["bnb_4bit_quant_type", "bnb_4bit_compute_dtype", "bnb_4bit_use_double_quant"],
+                "bnb_8bit": ["llm_int8_threshold", "llm_int8_has_fp16_weight"],
+            },
+        },
+        "bnb_4bit_quant_type": {
+            "label": "4-bit Quant Type",
+            "type": "string",
+            "options": ["nf4", "fp4"],
+            "value": "nf4",
+        },
+        "bnb_4bit_compute_dtype": {
+            "label": "Compute Dtype",
+            "type": "string",
+            "options": ["", "float32", "float16", "bfloat16"],
+            "value": "",
+        },
+        "bnb_4bit_use_double_quant": {
+            "label": "Double Quant",
+            "type": "boolean",
+            "value": False,
+        },
+        "llm_int8_threshold": {
+            "label": "Int8 Threshold",
+            "type": "float",
+            "display": "slider",
+            "default": 6.0,
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.5,
+        },
+        "llm_int8_has_fp16_weight": {
+            "label": "Has FP16 Weight",
+            "type": "boolean",
+            "value": False,
+        },
+        "llm_int8_skip_modules": {
+            "label": "Skip Modules",
+            "type": "string",
+            "display": "select",
+            "options": [],
+            "fieldOptions": {"multiple": True},
+            "value": [],
+        },
+        "quantization_config": {
+            "label": "Quantization Config",
+            "type": "quant_config",
+            "display": "output",
+        },
+        "config_info": {
+            "label": "Quantization Config Info",
+            "type": "string",
+            "display": "output",
+        },
+    }
+
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self._cached_layers = {}
+
+    def _get_model_layers(self, model_id, subfolder):
+        """Load model with empty weights and extract layer names."""
+        cache_key = f"{model_id}|{subfolder}"
+        if cache_key in self._cached_layers:
+            return self._cached_layers[cache_key]
+
+        try:
+            import torch.nn as nn
+            from accelerate import init_empty_weights
+            from diffusers import AutoModel
+            from diffusers.pipelines.pipeline_loading_utils import ALL_IMPORTABLE_CLASSES, get_class_obj_and_candidates
+
+            config = AutoModel.load_config(model_id, subfolder=subfolder)
+
+            if "_class_name" not in config:
+                raise ValueError(f"Config at {model_id}/{subfolder} doesn't contain '_class_name'")
+
+            orig_class_name = config["_class_name"]
+
+            # Get the model class using diffusers' utility
+            model_cls, _ = get_class_obj_and_candidates(
+                library_name="diffusers",
+                class_name=orig_class_name,
+                importable_classes=ALL_IMPORTABLE_CLASSES,
+                pipelines=None,
+                is_pipeline_module=False,
+            )
+
+            if model_cls is None:
+                raise ValueError(f"Could not find model class: {orig_class_name}")
+
+            # Initialize with empty weights
+            with init_empty_weights():
+                model = model_cls.from_config(config)
+
+            # Get Linear layer names (these are the ones that get quantized)
+            layers = [name for name, module in model.named_modules() if isinstance(module, nn.Linear)]
+
+            del model
+            self._cached_layers[cache_key] = layers
+            return layers
+
+        except Exception as e:
+            logger.warning(f"Failed to load model layers from {model_id}/{subfolder}: {e}")
+            return []
+
+    def update_skip_modules(self, values, ref):
+        """Called when 'Load Model Layers' button is clicked."""
+        model_id = values.get("model_id", {})
+        if isinstance(model_id, dict):
+            model_id = model_id.get("value", "")
+
+        subfolder = values.get("subfolder", "")
+
+        if not model_id:
+            self.notify(
+                "Please enter a Model ID first.",
+                variant="warning",
+                persist=False,
+                autoHideDuration=3000,
+            )
+            return
+
+        self.notify(
+            f"Loading layers from {model_id}...",
+            variant="info",
+            persist=False,
+            autoHideDuration=2000,
+        )
+
+        layers = self._get_model_layers(model_id, subfolder)
+
+        if layers:
+            self.set_field_params(
+                "llm_int8_skip_modules",
+                {
+                    "options": layers,
+                    "value": [],
+                },
+            )
+            self.notify(
+                f"Loaded {len(layers)} layers.",
+                variant="success",
+                persist=False,
+                autoHideDuration=3000,
+            )
+        else:
+            self.notify(
+                "No layers found or failed to load model.",
+                variant="error",
+                persist=False,
+                autoHideDuration=3000,
+            )
+
+    def execute(
+        self,
+        model_id,
+        subfolder,
+        component,
+        quant_type,
+        bnb_4bit_quant_type,
+        bnb_4bit_compute_dtype,
+        bnb_4bit_use_double_quant,
+        llm_int8_threshold,
+        llm_int8_has_fp16_weight,
+        llm_int8_skip_modules,
+        **kwargs,
+    ):
+        import torch
+        from diffusers import BitsAndBytesConfig
+
+        def str_to_dtype(dtype_str):
+            dtype_map = {
+                "": None,
+                "float32": torch.float32,
+                "float16": torch.float16,
+                "bfloat16": torch.bfloat16,
+            }
+            return dtype_map.get(dtype_str, None)
+
+        skip_modules = llm_int8_skip_modules if llm_int8_skip_modules else None
+
+        if quant_type == "bnb_4bit":
+            config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type=bnb_4bit_quant_type,
+                bnb_4bit_compute_dtype=str_to_dtype(bnb_4bit_compute_dtype),
+                bnb_4bit_use_double_quant=bnb_4bit_use_double_quant,
+                llm_int8_skip_modules=skip_modules,
+            )
+        elif quant_type == "bnb_8bit":
+            config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=float(llm_int8_threshold),
+                llm_int8_has_fp16_weight=llm_int8_has_fp16_weight,
+                llm_int8_skip_modules=skip_modules,
+            )
+
+        quantization_config = {component: config}
+        # Serializable version for DataViewer
+        config_info = {component: config.to_diff_dict() if hasattr(config, "to_diff_dict") else config.to_dict()}
+
+        return {
+            "quantization_config": quantization_config,
+            "config_info": config_info,
+        }
+
+
 class AutoModelLoader(NodeBase):
     label = "Load Model"
     category = "loader"
@@ -76,11 +325,15 @@ class AutoModelLoader(NodeBase):
             "type": "string",
             "options": {
                 "": "",
-                "denoise": "Denoise Model",
+                "unet": "UNet",
+                "transformer": "Transformer",
                 "vae": "VAE",
                 "controlnet": "ControlNet",
             },
-            "onChange": "set_filters",
+            "onChange": [
+                "set_filters",
+                {"action": "signal", "target": "model"},
+            ],
         },
         "model_id": {
             "label": "Model ID",
@@ -118,16 +371,23 @@ class AutoModelLoader(NodeBase):
 
         filters = []
 
-        if model_type == "denoise":
-            filters = ["UNet2DConditionModel", "QwenImageTransformer2DModel", "FluxTransformer2DModel"]
+        if model_type == "unet":
+            filters = ["UNet2DConditionModel"]
+            self.set_field_params("subfolder", {"value": "unet"})
+        elif model_type == "transformer":
+            filters = ["QwenImageTransformer2DModel", "FluxTransformer2DModel", "SD3Transformer2DModel"]
+            self.set_field_params("subfolder", {"value": "transformer"})
         elif model_type == "vae":
             filters = ["AutoencoderKL", "AutoencoderKLQwenImage"]
+            self.set_field_params("subfolder", {"value": "vae"})
         elif model_type == "controlnet":
             filters = ["ControlNetModel", "QwenImageControlNetModel", "FluxControlNetModel"]
+            self.set_field_params("subfolder", {"value": ""})
 
         default_values = {
             "": "",
-            "denoise": "stabilityai/stable-diffusion-xl-base-1.0",
+            "unet": "stabilityai/stable-diffusion-xl-base-1.0",
+            "transformer": "black-forest-labs/FLUX.1-dev",
             "vae": "stabilityai/stable-diffusion-xl-base-1.0",
             "controlnet": "diffusers/controlnet-depth-sdxl-1.0",
         }
@@ -153,15 +413,24 @@ class AutoModelLoader(NodeBase):
         logger.debug(f"  variant: '{variant}'")
         logger.debug(f"  dtype: '{dtype}'")
 
+        if isinstance(model_id, dict):
+            real_model_id = model_id.get("value", model_id)
+            _source = model_id.get("source", "hub")  # TODO: do something when is local?
+        else:
+            real_model_id = ""
+
+        if real_model_id == "":
+            self.notify(
+                "Please provide a valid Repository ID.",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
         # Normalize parameters
         variant = None if variant == "" else variant
         subfolder = None if subfolder == "" else subfolder
-
-        if isinstance(model_id, dict):
-            real_model_id = model_id.get("value", model_id)
-            source = model_id.get("source", "hub")  # TODO: do something when is local?
-        else:
-            real_model_id = ""
 
         spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
         model = spec.load(torch_dtype=dtype)
@@ -169,7 +438,10 @@ class AutoModelLoader(NodeBase):
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
         logger.debug(f" AutoModelLoader: component manager: {components}")
 
-        return {"model": components.get_model_info(comp_id)}
+        model = components.get_model_info(comp_id)
+        model["repo_id"] = real_model_id
+
+        return {"model": model}
 
 
 class ModelsLoader(NodeBase):
@@ -189,6 +461,7 @@ class ModelsLoader(NodeBase):
                 {"action": "signal", "target": "unet_out"},
                 {"action": "signal", "target": "text_encoders"},
                 {"action": "signal", "target": "vae_out"},
+                {"action": "signal", "target": "image_encoder"},
             ],
         },
         "repo_id": {
@@ -212,6 +485,8 @@ class ModelsLoader(NodeBase):
             "postProcess": str_to_dtype,
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
+        "trust_remote_code": {"label": "Trust Remote Code", "type": "boolean", "value": False},
+        "auto_offload": {"label": "Enable Auto Offload", "type": "boolean", "value": True},
         "unet": {"label": "Denoise Model", "display": "input", "type": "diffusers_auto_model"},
         "vae": {"label": "VAE", "display": "input", "type": "diffusers_auto_model"},
         "lora_list": {"label": "Lora", "display": "input", "type": "custom_lora"},
@@ -219,6 +494,8 @@ class ModelsLoader(NodeBase):
         "unet_out": {"label": "Denoise Model", "display": "output", "type": "diffusers_auto_model"},
         "vae_out": {"label": "VAE", "display": "output", "type": "diffusers_auto_model"},
         "scheduler": {"label": "Scheduler", "display": "output", "type": "diffusers_auto_model"},
+        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
+        "quant_config": {"label": "Quant Config", "display": "input", "type": "quant_config"},
     }
 
     def __init__(self, node_id=None):
@@ -241,7 +518,7 @@ class ModelsLoader(NodeBase):
 
         model_type = values.get("model_type", "")
         metadata = get_model_type_metadata(model_type)
-        
+
         if metadata:
             default_repo = metadata["default_repo"]
             default_dtype = metadata["default_dtype"]
@@ -249,28 +526,33 @@ class ModelsLoader(NodeBase):
             # Fallback for empty or unknown model types
             default_repo = ""
             default_dtype = "float16"
-        filters = [model_type] # YiYi Notes: 1:1 between model_type <-> modular pipeline class
+        filters = [model_type]  # YiYi Notes: 1:1 between model_type <-> modular pipeline class
 
         self.set_field_params(
-                "repo_id",
-                {
-                    "default": {"source": "hub", "value": default_repo},
-                    "value": {"source": "hub", "value": default_repo},
-                    "fieldOptions": {
-                        "filter": {
-                            "hub": {"className": filters},
-                        },
-                    },
+            "repo_id",
+            {
+                "default": {"source": "hub", "value": default_repo},
+                "value": {"source": "hub", "value": default_repo},
+                "fieldOptions": {
+                    "filter": {"hub": {"className": filters}},
                 },
-            )
-        self.set_field_params(
-                "dtype",
-                {
-                    "value": default_dtype,
-                },
-            )
+            },
+        )
+        self.set_field_params("dtype", {"value": default_dtype})
 
-    def execute(self, model_type, repo_id, device, dtype, unet=None, vae=None, lora_list=None):
+    def execute(
+        self,
+        model_type,
+        repo_id,
+        device,
+        dtype,
+        unet=None,
+        vae=None,
+        lora_list=None,
+        trust_remote_code=False,
+        auto_offload=True,
+        quant_config=None,
+    ):
         logger.debug(f"""
             ModelsLoader ({self.node_id}) received parameters:
             - repo_id: {repo_id}
@@ -278,6 +560,11 @@ class ModelsLoader(NodeBase):
             - device: {device}
             - unet: {unet}
             - vae: {vae}
+            - quant_config: {quant_config}
+            - auto_offload: {auto_offload}
+            - trust_remote_code: {trust_remote_code}
+            - lora_list: {lora_list}
+            - model_type: {model_type}
         """)
 
         # TODO: add custom text encoders (depending on architecture)
@@ -294,19 +581,30 @@ class ModelsLoader(NodeBase):
 
         if isinstance(repo_id, dict):
             real_repo_id = repo_id.get("value", repo_id)
-            source = repo_id.get("source", "hub")  # TODO: do something when is local?
+            _source = repo_id.get("source", "hub")  # TODO: do something when is local?
         else:
             real_repo_id = ""
 
-        if not components._auto_offload_enabled or components._auto_offload_device != device:
-            components.enable_auto_cpu_offload(device=device)
+        if real_repo_id == "":
+            self.notify(
+                "Please provide a valid Repository ID.",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
+
+        if auto_offload:
+            if not components._auto_offload_enabled or components._auto_offload_device != device:
+                components.enable_auto_cpu_offload(device=device)
+        elif components._auto_offload_enabled:
+            components.disable_auto_cpu_offload()
 
         self.loader = ModularPipeline.from_pretrained(
-            real_repo_id, components_manager=components, collection=self.node_id
+            real_repo_id, components_manager=components, collection=self.node_id, trust_remote_code=trust_remote_code
         )
 
         if model_type == "DummyCustomPipeline":
-
             # update node param
             mellon_config = MellonPipelineConfig.load(real_repo_id)
             mellon_config.label = "Custom"
@@ -315,7 +613,7 @@ class ModelsLoader(NodeBase):
             DummyCustomPipeline.repo_id = real_repo_id
             # register DummyCustomPipeline to MODULAR_REGISTRY
             MODULAR_REGISTRY.register(DummyCustomPipeline, mellon_config)
-        
+
         else:
             DummyCustomPipeline.repo_id = None
             MODULAR_REGISTRY.register(DummyCustomPipeline, DUMMY_CUSTOM_PIPELINE_CONFIG)
@@ -335,84 +633,89 @@ class ModelsLoader(NodeBase):
             comp_spec = self.loader.get_component_spec(comp_name)
             if comp_spec.load_id != "null":
                 comp_with_same_load_id = components._lookup_ids(load_id=comp_spec.load_id)
-                same_comp_in_collection = []
+                # for components with same load_id, e.g. repo/subfolder/variant/revison
+                # if we can find one with same dtype and quantization config, we reuse it
+                # otherwise, we reload it
+                comp_ids_to_reuse = []
                 for comp_id in comp_with_same_load_id:
-                    if isinstance(components.get_one(component_id=comp_id), torch.nn.Module):
-                        comp_dtype = components.get_one(component_id=comp_id).dtype
-                        if comp_dtype == dtype:
-                            same_comp_in_collection.append(comp_id)
-                    else:
-                        same_comp_in_collection.append(comp_id)
-                if not same_comp_in_collection:
-                    components_to_reload.append(comp_name)
+                    comp = components.get_one(component_id=comp_id)
+                    if isinstance(comp, torch.nn.Module):
+                        comp_dtype = comp.dtype
 
-        self.loader.load_components(names=components_to_reload, torch_dtype=dtype)
+                        # Check if quantization config matches
+                        existing_quant = getattr(comp, "hf_quantizer", None)
+                        requested_quant = quant_config.get(comp_name) if quant_config else None
+
+                        quant_matches = True
+                        if requested_quant is not None:
+                            if existing_quant is None:
+                                quant_matches = False
+                            else:
+                                # Compare configs
+                                existing_dict = existing_quant.quantization_config.to_dict()
+                                requested_dict = requested_quant.to_dict()
+                                quant_matches = existing_dict == requested_dict
+                        elif existing_quant is not None:
+                            quant_matches = False
+
+                        if comp_dtype == dtype and quant_matches:
+                            comp_ids_to_reuse.append(comp_id)
+                    else:
+                        # always reuse non-nn.Module components, e.g. scheduler, tokenizer, etc.
+                        comp_ids_to_reuse.append(comp_id)
+
+                if not comp_ids_to_reuse:
+                    components_to_reload.append(comp_name)
+                else:
+                    # Reuse existing component
+                    components_to_update.update(
+                        components.get_components_by_ids(ids=comp_ids_to_reuse, return_dict_with_names=True)
+                    )
+
+        self.loader.load_components(
+            names=components_to_reload,
+            torch_dtype=dtype,
+            trust_remote_code=trust_remote_code,
+            quantization_config=quant_config,
+        )
         self.loader.update_components(**components_to_update)
+
+        if not auto_offload:
+            self.loader.to(device)
 
         print(f" ModelsLoader: reloaded components: {components_to_reload}")
         print(f" ModelsLoader: updated components: {components_to_update.keys()}")
 
-        if not lora_list:
+        if hasattr(self.loader, "unload_lora_weights"):
             self.loader.unload_lora_weights()
-        else:
-            self.loader.unload_lora_weights()
+        if lora_list:
             update_lora_adapters(self.loader, lora_list)
 
         # Construct loaded_components at the end after all modifications
-        loaded_components = {
-            "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
-            "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
-            "text_encoders": {
-                k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
-                for k in text_encoder_names
-            },
-            "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
-        }
+        try:
+            loaded_components = {
+                "unet_out": node_get_component_info(node_id=self.node_id, manager=components, name=denoiser_name),
+                "vae_out": node_get_component_info(node_id=self.node_id, manager=components, name="vae"),
+                "text_encoders": {
+                    k: node_get_component_info(node_id=self.node_id, manager=components, name=k)
+                    for k in text_encoder_names
+                },
+                "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
+            }
+        except ValueError as e:
+            self.notify(
+                f" ModelsLoader: Error retrieving component info: {e}",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            return None
 
         # add repo_id to all models info dicts
         for k, v in loaded_components.items():
-            v["repo_id"] = real_repo_id
+            if v is not None:
+                v["repo_id"] = real_repo_id
 
         logger.debug(f" ModelsLoader: Final component_manager state: {components}")
 
         return loaded_components
-
-
-# YiYi Notes: rename this to IPAdapter Image Encoder?
-class ImageEncoder(NodeBase):
-    label = "Image Encoder"
-    category = "adapters"
-    resizable = True
-
-    params = {
-        "model_path": {
-            "label": "Model ID",
-            "display": "modelselect",
-            "type": "string",
-            "default": {"source": "hub", "value": "h94/IP-Adapter"},
-            "fieldOptions": {
-                "noValidation": True,
-                "sources": ["hub", "local"],
-            },
-        },
-        "subfolder": {"label": "Subfolder", "type": "string", "default": "models/image_encoder"},
-        "image_encoder": {"label": "Image Encoder", "display": "output", "type": "diffusers_auto_model"},
-    }
-
-    def execute(self, model_path, subfolder=None):
-        subfolder = None if subfolder == "" else subfolder
-
-        model_name = "image_encoder"
-
-        if isinstance(model_path, dict):
-            model_id = model_path.get("value", None)
-        else:
-            model_id = None
-
-        image_encoder_spec = ComponentSpec(
-            name=model_name, type_hint=CLIPVisionModelWithProjection, repo=model_id, subfolder=subfolder
-        )
-        image_encoder = image_encoder_spec.load(torch_dtype=torch.float16)
-        image_encoder_id = components.add(model_name, image_encoder, collection=self.node_id)
-
-        return {"image_encoder": components.get_model_info(image_encoder_id)}
