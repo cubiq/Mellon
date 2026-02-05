@@ -288,6 +288,14 @@ class QuantizationConfigNode(NodeBase):
 
         skip_modules = llm_int8_skip_modules if llm_int8_skip_modules else None
 
+        if skip_modules:
+            if isinstance(model_id, dict):
+                model_id = model_id.get("value", "")
+            cache_key = f"{model_id}|{subfolder}"
+            layers = self._cached_layers.get(cache_key, [])
+            if layers:
+                skip_modules = [layers[int(i)] for i in skip_modules if int(i) < len(layers)]
+
         if quant_type == "bnb_4bit":
             config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -691,6 +699,10 @@ class ModelsLoader(NodeBase):
         if lora_list:
             update_lora_adapters(self.loader, lora_list)
 
+
+        # Check parameter dtypes
+        print(f" test transformer img_in weight dtype (remove this line later): {self.loader.transformer.img_in.weight.dtype}")
+        print(f" test transformer img_in type (remove this line later): {type(self.loader.transformer.img_in)}")
         # Construct loaded_components at the end after all modifications
         try:
             loaded_components = {
