@@ -6,11 +6,11 @@ from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 from mellon.NodeBase import NodeBase
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
-from . import components
+from . import MESSAGE_DURATION, components
+from .utils import collect_model_ids
 
 
 logger = logging.getLogger("mellon")
-from . import components
 
 
 class DynamicBlockNode(NodeBase):
@@ -29,7 +29,8 @@ class DynamicBlockNode(NodeBase):
             "value": "",
             "options": {
                 "": "",
-                "diffusers/FLUX.2-klein-4B-modular": "FLUX.2-klein-4B",
+                "YiYiXu/FLUX.2-klein-4B-modular": "FLUX.2-klein-4B",
+                "diffusers/gemini-prompt-expander-mellon": "Gemini Prompt Expander",
             },
             "fieldOptions": {"noValidation": True},
         },
@@ -48,17 +49,19 @@ class DynamicBlockNode(NodeBase):
         },
     }
 
+    def __init__(self, node_id=None):
+        super().__init__(node_id)
+        self._model_input_names = []
+
     def __del__(self):
         node_comp_ids = components._lookup_ids(collection=self.node_id)
         for comp_id in node_comp_ids:
             components.remove_from_collection(comp_id, self.node_id)
         super().__del__()
 
-    def _get_custom_params(self, repo_id):
+    def _get_custom_config(self, repo_id):
         custom_mellon_config = MellonPipelineConfig.load(repo_id)
-        custom_params = custom_mellon_config.node_params["custom"]["params"]
-
-        return custom_params
+        return custom_mellon_config
 
     def update_node(self, values, ref):
         if not values.get("repo_id", ""):
@@ -66,7 +69,11 @@ class DynamicBlockNode(NodeBase):
             return
 
         repo_id = values.get("repo_id", "")
-        custom_params = self._get_custom_params(repo_id)
+        custom_mellon_config = self._get_custom_config(repo_id)
+        node_config = custom_mellon_config.node_params["custom"]
+
+        custom_params = node_config["params"]
+        self._model_input_names = node_config.get("model_input_names", [])
 
         self.send_node_definition(custom_params)
 
@@ -80,7 +87,7 @@ class DynamicBlockNode(NodeBase):
         )
 
         # Load config to get input/output names and dtype
-        custom_mellon_config = MellonPipelineConfig.load(repo_id)
+        custom_mellon_config = self._get_custom_config(repo_id)
         node_config = custom_mellon_config.node_params["custom"]
 
         # Get dtype from config
@@ -102,12 +109,19 @@ class DynamicBlockNode(NodeBase):
                 elif param_type == "int":
                     kwargs[param_name] = int(kwargs[param_name])
 
-        # Handle components
+        # Handle components - collect from connected inputs (Load Models) and config
+        model_input_names = node_config.get("model_input_names", [])
+        expected_component_names = pipeline.pretrained_component_names
+
+        model_ids = collect_model_ids(
+            kwargs,
+            target_key_names=model_input_names,
+            target_model_names=expected_component_names,
+        )
+
         components_update_dict = {}
-        for comp_name in node_config.get("model_input_names", []):
-            if comp_name in kwargs:
-                model_info_dict = kwargs.pop(comp_name)
-                components_update_dict.update(components.get_components_by_ids([model_info_dict["model_id"]]))
+        if model_ids:
+            components_update_dict = components.get_components_by_ids(ids=model_ids, return_dict_with_names=True)
 
         # Check which components need to be loaded vs reused
         components_to_load = []
