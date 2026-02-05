@@ -167,7 +167,7 @@ class QuantizationConfigNode(NodeBase):
         self._cached_layers = {}
 
     def _get_model_layers(self, model_id, subfolder):
-        """Load model with empty weights and extract layer names."""
+        """Load model with empty weights and extract block-level layer groups."""
         cache_key = f"{model_id}|{subfolder}"
         if cache_key in self._cached_layers:
             return self._cached_layers[cache_key]
@@ -185,7 +185,6 @@ class QuantizationConfigNode(NodeBase):
 
             orig_class_name = config["_class_name"]
 
-            # Get the model class using diffusers' utility
             model_cls, _ = get_class_obj_and_candidates(
                 library_name="diffusers",
                 class_name=orig_class_name,
@@ -197,20 +196,29 @@ class QuantizationConfigNode(NodeBase):
             if model_cls is None:
                 raise ValueError(f"Could not find model class: {orig_class_name}")
 
-            # Initialize with empty weights
             with init_empty_weights():
                 model = model_cls.from_config(config)
 
-            # Get Linear layer names (these are the ones that get quantized)
-            layers = [name for name, module in model.named_modules() if isinstance(module, nn.Linear)]
+            # Get all Linear layer names
+            linear_layers = [name for name, module in model.named_modules() if isinstance(module, nn.Linear)]
+
+            # Group by first two parts: e.g. "transformer_blocks.0.attn.to_q" -> "transformer_blocks.0"
+            blocks = {}
+            for layer_name in linear_layers:
+                parts = layer_name.split(".")
+                block_prefix = ".".join(parts[:2]) if len(parts) > 2 else layer_name
+
+                if block_prefix not in blocks:
+                    blocks[block_prefix] = []
+                blocks[block_prefix].append(layer_name)
 
             del model
-            self._cached_layers[cache_key] = layers
-            return layers
+            self._cached_layers[cache_key] = blocks
+            return blocks
 
         except Exception as e:
             logger.warning(f"Failed to load model layers from {model_id}/{subfolder}: {e}")
-            return []
+            return {}
 
     def update_skip_modules(self, values, ref):
         """Called when 'Load Model Layers' button is clicked."""
@@ -236,18 +244,18 @@ class QuantizationConfigNode(NodeBase):
             autoHideDuration=2000,
         )
 
-        layers = self._get_model_layers(model_id, subfolder)
+        blocks = self._get_model_layers(model_id, subfolder)
 
-        if layers:
+        if blocks:
             self.set_field_params(
                 "llm_int8_skip_modules",
                 {
-                    "options": layers,
+                    "options": list(blocks.keys()),
                     "value": [],
                 },
             )
             self.notify(
-                f"Loaded {len(layers)} layers.",
+                f"Loaded {len(blocks)} blocks/layers.",
                 variant="success",
                 persist=False,
                 autoHideDuration=3000,
@@ -292,9 +300,16 @@ class QuantizationConfigNode(NodeBase):
             if isinstance(model_id, dict):
                 model_id = model_id.get("value", "")
             cache_key = f"{model_id}|{subfolder}"
-            layers = self._cached_layers.get(cache_key, [])
-            if layers:
-                skip_modules = [layers[int(i)] for i in skip_modules if int(i) < len(layers)]
+            blocks = self._cached_layers.get(cache_key, {})
+            if blocks:
+                block_keys = list(blocks.keys())
+                # Resolve indices to block names, then expand to all linear layers in those blocks
+                resolved = []
+                for i in skip_modules:
+                    idx = int(i)
+                    if idx < len(block_keys):
+                        resolved.extend(blocks[block_keys[idx]])
+                skip_modules = resolved
 
         if quant_type == "bnb_4bit":
             config = BitsAndBytesConfig(
@@ -699,10 +714,6 @@ class ModelsLoader(NodeBase):
         if lora_list:
             update_lora_adapters(self.loader, lora_list)
 
-
-        # Check parameter dtypes
-        print(f" test transformer img_in weight dtype (remove this line later): {self.loader.transformer.img_in.weight.dtype}")
-        print(f" test transformer img_in type (remove this line later): {type(self.loader.transformer.img_in)}")
         # Construct loaded_components at the end after all modifications
         try:
             loaded_components = {
