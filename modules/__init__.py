@@ -196,6 +196,10 @@ def parse_module_map(base_path: str) -> None:
             for file_stem in files_to_parse:
                 # We need to find the full path of the file to parse
                 # The module object's __file__ attribute usually points to the __init__.py
+                if not hasattr(module_obj, "__file__") or module_obj.__file__ is None:
+                    logger.warning(f"Module '{module_name}' does not have a __file__ attribute. Skipping file parsing.")
+                    continue
+
                 module_dir = path.dirname(module_obj.__file__)
                 target_file = path.join(module_dir, f"{file_stem}.py")
 
@@ -206,6 +210,7 @@ def parse_module_map(base_path: str) -> None:
                         module_content.update(parsed_content)
                 else:
                     logger.warning(f"Could not find file '{file_stem}.py' in module '{module_name}'")
+                    continue
 
             if module_content:
                 #MODULE_MAP[module_name] = dict(sorted(module_content.items(), key=lambda item: item[0]))
