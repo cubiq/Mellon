@@ -856,9 +856,7 @@ WAN_T2V_NODE_SPECS = {
     "decoder": {
         "inputs": [
             MellonParam.latents(display="input"),
-            MellonParam(
-                name="output_type", label="Output Type", type="dropdown", options=["np", "pil"], default="pil"
-            ),
+            MellonParam.output_type(default="pil"),
         ],
         "model_inputs": [
             MellonParam.vae(),
@@ -891,8 +889,8 @@ WAN_I2V_NODE_SPECS = {
             MellonParam.num_inference_steps(50),
             MellonParam.guidance_scale(5.0),
             MellonParam.num_frames(81),
-            MellonParam.first_frame_latents(display="input"),
             MellonParam.image_embeds(display="input"),
+            MellonParam(name="image_condition_latents", label="Image Latents", type="latents", display="input"),
         ],
         "model_inputs": [
             MellonParam.unet(),
@@ -902,7 +900,7 @@ WAN_I2V_NODE_SPECS = {
             MellonParam.latents(display="output"),
             MellonParam.doc(),
         ],
-        "required_inputs": ["embeddings"],
+        "required_inputs": ["embeddings", "image_embeds", "image_condition_latents"],
         "required_model_inputs": ["unet", "scheduler"],
         "block_name": "denoise",
     },
@@ -914,7 +912,7 @@ WAN_I2V_NODE_SPECS = {
             MellonParam.vae(),
         ],
         "outputs": [
-            MellonParam.first_frame_latents(display="output"),
+            MellonParam(name="image_condition_latents", label="Image Latents", type="latents", display="output"),
             MellonParam.doc(),
         ],
         "required_inputs": ["image"],

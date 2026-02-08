@@ -4,36 +4,11 @@ import logging
 from mellon.NodeBase import NodeBase
 
 from . import components
-from .utils import combine_multi_inputs, collect_model_ids
-from .modular_utils import pipeline_class_to_mellon_node_config, DummyCustomPipeline
+from .modular_utils import DummyCustomPipeline, pipeline_class_to_mellon_node_config
+from .utils import collect_model_ids
 
 
 logger = logging.getLogger("mellon")
-
-
-
-
-class MultiControlNet(NodeBase):
-    label = "Multi ControlNet"
-    category = "adapters"
-
-    params = {
-        "controlnet_list": {
-            "label": "ControlNet",
-            "display": "input",
-            "type": "custom_controlnet",
-            "spawn": True,
-        },
-        "controlnet": {
-            "label": "Multi Controlnet",
-            "type": "custom_controlnet",
-            "display": "output",
-        },
-    }
-
-    def execute(self, controlnet_list):
-        controlnet = combine_multi_inputs(controlnet_list)
-        return {"controlnet": controlnet}
 
 
 class ControlnetUnion(NodeBase):
@@ -241,10 +216,10 @@ class Controlnet(NodeBase):
         self._model_type = model_type
         if model_type == "DummyCustomPipeline":
             self._pipeline_class = DummyCustomPipeline
-        else:   
+        else:
             diffusers_module = importlib.import_module("diffusers")
             self._pipeline_class = getattr(diffusers_module, model_type)
-        
+
         _, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
 
         # Not supported for this pipeline
@@ -262,9 +237,7 @@ class Controlnet(NodeBase):
         kwargs = dict(kwargs)
 
         # 1. Get node config
-        blocks, node_config = pipeline_class_to_mellon_node_config(
-            self._pipeline_class, self.node_type
-        )
+        blocks, node_config = pipeline_class_to_mellon_node_config(self._pipeline_class, self.node_type)
         denoise_blocks, _ = pipeline_class_to_mellon_node_config(self._pipeline_class, "denoise")
         if denoise_blocks is None:
             return
@@ -283,7 +256,6 @@ class Controlnet(NodeBase):
         if blocks is not None:
             # 3. Create pipeline
             self._pipeline = blocks.init_pipeline(components_manager=components)
-
 
             # 4. Update components
             expected_component_names = blocks.component_names
