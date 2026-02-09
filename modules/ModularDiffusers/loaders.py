@@ -724,10 +724,12 @@ class ModelsLoader(NodeBase):
                     for k in text_encoder_names
                 },
                 "scheduler": node_get_component_info(node_id=self.node_id, manager=components, name="scheduler"),
-                "image_encoder": node_get_component_info(
-                    node_id=self.node_id, manager=components, name="image_encoder"
-                ),
             }
+
+            if model_type == "WanImage2VideoModularPipeline":
+                loaded_components["image_encoder"] = node_get_component_info(
+                    node_id=self.node_id, manager=components, name="image_encoder"
+                )
         except ValueError as e:
             self.notify(
                 f" ModelsLoader: Error retrieving component info: {e}",
