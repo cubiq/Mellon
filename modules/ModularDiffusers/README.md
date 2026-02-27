@@ -47,11 +47,9 @@ In the left sidebar, click the **workflow icon** (the branching symbol), then ex
 * `multiple_image_edit` - Edit based on multiple images
 * `quantization` - Run models with reduced memory using quantization
 
-Video Placeholder
-
 Simply **drag any workflow onto the canvas** to load it. The nodes come pre-connected, so you can just adjust your settings and run.
 
-Let's take a closer look at what's inside our official **text_to_image** workflow.
+https://github.com/user-attachments/assets/a4d0604f-80ea-4470-80e6-53a73e584ca3
 
 ## The Basic  5-nodes Workflow
 
@@ -61,20 +59,22 @@ When you drag in `text_to_image` , you’ll see need these 5 nodes:
 
     **Our nodes are dynamic** - their interface changes based on the model you select. For example, Flux defaults to 28 steps with no negative prompt, Qwen supports negative prompts and defaults to 50 steps, while Z-Image-Turbo needs only 9 steps and doesn't use negative prompts. 
 
-    Video Placeholder
+https://github.com/user-attachments/assets/4bbf74ac-404e-46bb-ae51-a84e65c25235
 
-2. **Encode Prompt** - Encode your text prompt into embeddings.
-3. **Denoise** - The denoise loop. Configure `Width`, `Height`, `Steps`, `Guidance Scale`, and `Seed` here.
-4. **Decode Latents** - Decode latent output into an actual image using the VAE.
-5. **Preview Image** - Displays your generated image.
+3. **Encode Prompt** - Encode your text prompt into embeddings.
+4. **Denoise** - The denoise loop. Configure `Width`, `Height`, `Steps`, `Guidance Scale`, and `Seed` here.
+5. **Decode Latents** - Decode latent output into an actual image using the VAE.
+6. **Preview Image** - Displays your generated image.
 
 That's all you need to know to get started. Type your prompt in the Encode Prompt node and hit **Run**:
 
-Video Placeholder
+https://github.com/user-attachments/assets/e563eeb0-4f9e-4a27-8304-49fd15b87550
 
 ## Switching Tasks with the Same Model
 
 If your model supports multiple tasks, you don't need to load a separate workflow - just extend the one you have. For example, if you've already run text-to-image with Flux-Klein and want to do edit, simply add an Encode Image node and connect it to the Denoise node. The model stays loaded in memory, so there's no need to reload anything.
+
+https://github.com/user-attachments/assets/ddbc3e06-6254-4595-8209-4cfd98d3aabc
 
 ## Single-Node Workflow
 
@@ -106,7 +106,7 @@ Anyone can create and publish their own custom nodes to the Hub - just upload yo
 
 In this example, we add a Gemini prompt expansion node (`diffusers/gemini-prompt-expander-mellon`) to an existing text-to-image workflow. Drag in a `Dynamic Block` node, enter the repo id, click Load, and it configures itself. Type a short prompt, connect its output to the Encode Prompt node, and run - Gemini expands your prompt into a detailed description before generating the image.
 
-Video placeholder
+https://github.com/user-attachments/assets/d68bc8c1-1b1c-478a-b94b-1e498c60a4fc
 
 # More Features
 
