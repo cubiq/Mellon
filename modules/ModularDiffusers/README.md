@@ -138,5 +138,5 @@ Each of our nodes maps to a Modular Diffusers pipeline on the backend, so all of
 
 Mellon also has a built-in compare node you can use to see the changes in the images you generate, it’s as easy as changing the image preview for the image compare node and link the corresponding nodes. This is specially useful for testing and comparing the different guiders and techniques and see which one is better.
 
-![Video](https://huggingface.co/datasets/OzzyGT/mellon_docs/resolve/main/compare_image.mp4)
-<video src="https://huggingface.co/datasets/OzzyGT/mellon_docs/resolve/main/compare_image.mp4" width="320" height="240" controls></video>   
+https://github.com/user-attachments/assets/058fcce6-28db-4faf-9063-b48a0a1ea592
+
