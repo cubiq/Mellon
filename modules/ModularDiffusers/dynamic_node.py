@@ -42,6 +42,7 @@ class DynamicBlockNode(NodeBase):
         },
         "device": {"label": "Device", "type": "string", "value": DEFAULT_DEVICE, "options": DEVICE_LIST},
         "auto_offload": {"label": "Enable Auto Offload", "type": "boolean", "value": False},
+        "trust_remote_code": {"label": "Trust Remote Code", "type": "boolean", "value": False},
         "doc": {
             "label": "Doc",
             "type": "string",
@@ -77,14 +78,28 @@ class DynamicBlockNode(NodeBase):
 
         self.send_node_definition(custom_params)
 
-    def execute(self, **kwargs):
-        repo_id = kwargs.pop("repo_id", "")
-        device = kwargs.pop("device", DEFAULT_DEVICE)
-        auto_offload = kwargs.pop("auto_offload", True)
+    def execute(self, repo_id, device, auto_offload, trust_remote_code, **kwargs):
+        logger.debug(f"Dynamic Block Node ({self.node_id}) received parameters:")
+        logger.debug(f"  repo_id: '{repo_id}'")
+        logger.debug(f"  device: '{device}'")
+        logger.debug(f"  auto_offload: '{auto_offload}'")
+        logger.debug(f"  trust_remote_code: '{trust_remote_code}'")
 
-        pipeline = ModularPipeline.from_pretrained(
-            repo_id, trust_remote_code=True, components_manager=components, collection=self.node_id
-        )
+        try:
+            pipeline = ModularPipeline.from_pretrained(
+                repo_id, trust_remote_code, components_manager=components, collection=self.node_id
+            )
+        except ValueError as e:
+            self.notify(f"{str(e)}", variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
+            raise e
+        except ModuleNotFoundError as e:
+            self.notify(
+                f"{str(e)}. This likely means the custom code is trying to import a library that is not installed in Mellon. Please check the error message for which module is missing and install it in your Mellon environment.",
+                variant="error",
+                persist=False,
+                autoHideDuration=MESSAGE_DURATION,
+            )
+            raise e
 
         # Load config to get input/output names and dtype
         custom_mellon_config = self._get_custom_config(repo_id)

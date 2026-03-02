@@ -380,6 +380,7 @@ class AutoModelLoader(NodeBase):
         },
         "subfolder": {"label": "Subfolder", "type": "string", "value": ""},
         "variant": {"type": "string", "value": "", "options": ["", "fp16", "bf16"]},
+        "trust_remote_code": {"label": "Trust Remote Code", "type": "boolean", "value": False},
         "model": {"label": "Model", "display": "output", "type": "diffusers_auto_model"},
     }
 
@@ -428,12 +429,13 @@ class AutoModelLoader(NodeBase):
             },
         )
 
-    def execute(self, model_type, model_id, dtype, variant=None, subfolder=None):
+    def execute(self, model_type, model_id, dtype, trust_remote_code, variant=None, subfolder=None):
         logger.debug(f"AutoModelLoader ({self.node_id}) received parameters:")
         logger.debug(f"  model_type: '{model_type}'")
         logger.debug(f"  model_id: '{model_id}'")
         logger.debug(f"  subfolder: '{subfolder}'")
         logger.debug(f"  variant: '{variant}'")
+        logger.debug(f"  trust_remote_code: '{trust_remote_code}'")
         logger.debug(f"  dtype: '{dtype}'")
 
         if isinstance(model_id, dict):
@@ -456,7 +458,7 @@ class AutoModelLoader(NodeBase):
         subfolder = None if subfolder == "" else subfolder
 
         spec = ComponentSpec(name=model_type, repo=real_model_id, subfolder=subfolder, variant=variant)
-        model = spec.load(torch_dtype=dtype)
+        model = spec.load(torch_dtype=dtype, trust_remote_code=trust_remote_code)
         comp_id = components.add(model_type, model, collection=self.node_id)
         logger.debug(f" AutoModelLoader: comp_id added: {comp_id}")
         logger.debug(f" AutoModelLoader: component manager: {components}")
