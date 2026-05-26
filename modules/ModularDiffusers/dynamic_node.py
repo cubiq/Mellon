@@ -4,6 +4,7 @@ from diffusers import ModularPipeline
 from diffusers.modular_pipelines.mellon_node_utils import MellonPipelineConfig
 
 from mellon.NodeBase import NodeBase
+from mellon.server import server
 from utils.torch_utils import DEFAULT_DEVICE, DEVICE_LIST, str_to_dtype
 
 from . import MESSAGE_DURATION, components
@@ -19,6 +20,29 @@ class DynamicBlockNode(NodeBase):
     style = {"minWidth": 300}
     skipParamsCheck = True
     node_type = "custom"
+
+    def send_node_definition_with_meta(self, params, label=None, header_color=None):
+        """Extended send_node_definition that also updates node label and header color.
+
+        Args:
+            params: dict of node params (same as send_node_definition)
+            label: optional string to rename the node title in the UI
+            header_color: optional CSS color string for the node header bar,
+                          e.g. "#e67e22", "rgb(100,150,200)", "orange"
+        """
+        if not self._sid or not self.node_id:
+            return
+        
+        message = {
+            "type": "node_definition",
+            "node": self.node_id,
+            "params": params,
+        }
+        if label:
+            message["label"] = label
+        if header_color:
+            message["style"] = {"headerColor": header_color}
+        server.queue_message(message, self._sid)
 
     params = {
         "repo_id": {
@@ -76,7 +100,17 @@ class DynamicBlockNode(NodeBase):
         custom_params = node_config["params"]
         self._model_input_names = node_config.get("model_input_names", [])
 
-        self.send_node_definition(custom_params)
+        node_label = node_config.get("label")
+        node_color = node_config.get("color")
+
+        if not node_label:
+            node_label = repo_id.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title()
+
+        self.send_node_definition_with_meta(
+            custom_params,
+            label=node_label,
+            header_color=node_color,
+        )
 
     def execute(self, repo_id, device, auto_offload, trust_remote_code, **kwargs):
         logger.debug(f"Dynamic Block Node ({self.node_id}) received parameters:")
