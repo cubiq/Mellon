@@ -121,7 +121,10 @@ class DynamicBlockNode(NodeBase):
 
         try:
             pipeline = ModularPipeline.from_pretrained(
-                repo_id, trust_remote_code, components_manager=components, collection=self.node_id
+                repo_id,
+                trust_remote_code=trust_remote_code,
+                components_manager=components,
+                collection=self.node_id,
             )
         except ValueError as e:
             self.notify(f"{str(e)}", variant="error", persist=False, autoHideDuration=MESSAGE_DURATION)
@@ -188,7 +191,11 @@ class DynamicBlockNode(NodeBase):
                 components_to_load.append(comp_name)
 
         pipeline.update_components(**components_update_dict)
-        pipeline.load_components(names=components_to_load, torch_dtype=torch_dtype)
+        pipeline.load_components(
+            names=components_to_load,
+            torch_dtype=torch_dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
         # Move to device if not using auto offload
         if not auto_offload:
